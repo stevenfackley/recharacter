@@ -29,4 +29,26 @@ public class DischargeRouterTests
         Assert.Equal(new[] { ReviewBoard.Drb, ReviewBoard.Bcmr }, result.AvailableBoards);
         Assert.Empty(result.Flags);
     }
+
+    [Fact]
+    public void Route_MarineOth_PastFifteenYears_RecommendsBcmrWithDd149()
+    {
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.MarineCorps,
+            DischargeDate = new DateOnly(2009, 1, 1),
+            Characterization = DischargeCharacterization.OtherThanHonorable,
+            WasGeneralCourtMartial = false
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts); // > 15 years later
+
+        Assert.Equal(ReviewBoard.Bcmr, result.RecommendedBoard);
+        Assert.Equal(ApplicationForm.DD149, result.RecommendedForm);
+        Assert.Equal("BCNR", result.BoardName);
+        Assert.False(result.DrbWindowOpen);
+        Assert.Equal(new[] { ReviewBoard.Bcmr }, result.AvailableBoards);
+        Assert.Contains(RoutingFlag.PastDrbWindow, result.Flags);
+        Assert.Contains(RoutingFlag.BcmrThreeYearStatuteWaiverLikely, result.Flags);
+    }
 }
