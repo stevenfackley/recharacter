@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ReCharacter.RoutingApi/ReCharacter.RoutingApi.csproj" />
+    <Project Path="src/ReCharacter.RulesEngine/ReCharacter.RulesEngine.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ReCharacter.RoutingApi.Tests/ReCharacter.RoutingApi.Tests.csproj" />
+    <Project Path="tests/ReCharacter.RulesEngine.Tests/ReCharacter.RulesEngine.Tests.csproj" />
+  </Folder>
+</Solution>
