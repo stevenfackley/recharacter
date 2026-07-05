@@ -51,4 +51,26 @@ public class DischargeRouterTests
         Assert.Contains(RoutingFlag.PastDrbWindow, result.Flags);
         Assert.Contains(RoutingFlag.BcmrThreeYearStatuteWaiverLikely, result.Flags);
     }
+
+    [Fact]
+    public void Route_GeneralCourtMartial_WithinWindow_StillRoutesToBcmr()
+    {
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.Army,
+            DischargeDate = new DateOnly(2023, 5, 1), // well within 15 years
+            Characterization = DischargeCharacterization.BadConductDischarge,
+            WasGeneralCourtMartial = true
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.Equal(ReviewBoard.Bcmr, result.RecommendedBoard);
+        Assert.Equal(ApplicationForm.DD149, result.RecommendedForm);
+        Assert.Equal("ABCMR", result.BoardName);
+        Assert.Contains(RoutingFlag.GeneralCourtMartialRequiresBcmr, result.Flags);
+        Assert.DoesNotContain(ReviewBoard.Drb, result.AvailableBoards);
+        // DRB window is technically open, even though DRB is unavailable for GCM.
+        Assert.True(result.DrbWindowOpen);
+    }
 }
