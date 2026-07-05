@@ -73,4 +73,63 @@ public class DischargeRouterTests
         // DRB window is technically open, even though DRB is unavailable for GCM.
         Assert.True(result.DrbWindowOpen);
     }
+
+    [Fact]
+    public void Route_CoastGuard_AddsDhsPolicyFlag()
+    {
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.CoastGuard,
+            DischargeDate = new DateOnly(2022, 2, 2),
+            Characterization = DischargeCharacterization.GeneralUnderHonorable
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.Equal("CGDRB", result.BoardName);
+        Assert.Contains(RoutingFlag.CoastGuardDhsPolicyDiffers, result.Flags);
+    }
+
+    [Fact]
+    public void Route_Uncharacterized_AddsEntryLevelFlag()
+    {
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.Navy,
+            DischargeDate = new DateOnly(2023, 9, 9),
+            Characterization = DischargeCharacterization.Uncharacterized
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.Contains(RoutingFlag.EntryLevelSeparationUncharacterized, result.Flags);
+    }
+
+    [Fact]
+    public void Route_AlreadyHonorable_AddsNothingToUpgradeFlag()
+    {
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.AirForce,
+            DischargeDate = new DateOnly(2023, 9, 9),
+            Characterization = DischargeCharacterization.Honorable
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.Contains(RoutingFlag.AlreadyHonorableNothingToUpgrade, result.Flags);
+    }
+
+    [Fact]
+    public void Route_FutureDischargeDate_Throws()
+    {
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.Army,
+            DischargeDate = new DateOnly(2027, 1, 1),
+            Characterization = DischargeCharacterization.OtherThanHonorable
+        };
+
+        Assert.Throws<ArgumentException>(() => RouterAt(2026, 7, 5).Route(facts));
+    }
 }
