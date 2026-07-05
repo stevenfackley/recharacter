@@ -132,4 +132,54 @@ public class DischargeRouterTests
 
         Assert.Throws<ArgumentException>(() => RouterAt(2026, 7, 5).Route(facts));
     }
+
+    [Fact]
+    public void Route_MultipleConditions_EmitsExactlyTheExpectedFlags_NoExtrasOrDuplicates()
+    {
+        // Coast Guard + past-window + uncharacterized should yield exactly four flags, in order,
+        // with no duplicates or spurious extras. The per-flag Assert.Contains tests elsewhere
+        // would not catch over-emission; this pins the full output.
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.CoastGuard,
+            DischargeDate = new DateOnly(2005, 1, 1), // > 15 years before as-of
+            Characterization = DischargeCharacterization.Uncharacterized,
+            WasGeneralCourtMartial = false
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.Equal(
+            new[]
+            {
+                RoutingFlag.PastDrbWindow,
+                RoutingFlag.BcmrThreeYearStatuteWaiverLikely,
+                RoutingFlag.CoastGuardDhsPolicyDiffers,
+                RoutingFlag.EntryLevelSeparationUncharacterized
+            },
+            result.Flags);
+        Assert.Equal(new[] { ReviewBoard.Bcmr }, result.AvailableBoards);
+    }
+
+    [Fact]
+    public void Route_GeneralCourtMartial_AndPastWindow_FlagsGcmButNotPastWindow()
+    {
+        // Both conditions independently bar the DRB. The router reports the court-martial reason
+        // and deliberately does NOT also emit PastDrbWindow (mutually exclusive by design).
+        // Pin the intent so an else-if -> if refactor can't change the output silently.
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.Army,
+            DischargeDate = new DateOnly(2005, 1, 1), // past 15 years
+            Characterization = DischargeCharacterization.BadConductDischarge,
+            WasGeneralCourtMartial = true
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.Equal(ReviewBoard.Bcmr, result.RecommendedBoard);
+        Assert.Contains(RoutingFlag.GeneralCourtMartialRequiresBcmr, result.Flags);
+        Assert.DoesNotContain(RoutingFlag.PastDrbWindow, result.Flags);
+        Assert.False(result.DrbWindowOpen);
+    }
 }

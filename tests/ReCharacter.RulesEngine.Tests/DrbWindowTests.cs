@@ -39,4 +39,13 @@ public class DrbWindowTests
 
         Assert.False(DrbWindow.IsOpen(discharge, asOf));
     }
+
+    [Fact]
+    public void Deadline_LeapDayDischarge_ClampsToFeb28InNonLeapTargetYear()
+    {
+        // 2008-02-29 + 15y -> 2023 is not a leap year; DateOnly.AddYears clamps to Feb 28
+        // (it does not throw). Pin this: a future "clarification" to new DateOnly(y+15, m, d)
+        // would throw ArgumentOutOfRangeException at runtime for leap-day discharges.
+        Assert.Equal(new DateOnly(2023, 2, 28), DrbWindow.Deadline(new DateOnly(2008, 2, 29)));
+    }
 }
