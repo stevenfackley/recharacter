@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { z } from 'zod'
 import { getTask, TASKS } from '@/lib/ai/tasks'
 
 describe('task registry', () => {
@@ -26,5 +27,20 @@ describe('task registry', () => {
     const ping = getTask('ping')!
     expect(() => ping.buildPrompt({ message: 42 })).toThrow()
     expect(ping.buildPrompt({ message: 'hi' })).toContain('hi')
+  })
+
+  test('jsonSchema never drifts from the Zod outputSchema (structural pin)', () => {
+    // outputSchema (Zod, validates responses) and jsonSchema (hand-written, sent to
+    // the API as output_config.format) are parallel definitions of the same shape.
+    // Pin them together: top-level property names and required set must match the
+    // Zod shape exactly, for EVERY registered task.
+    for (const task of Object.values(TASKS)) {
+      const zodKeys = Object.keys((task.outputSchema as z.ZodObject<z.ZodRawShape>).shape).sort()
+      const props = Object.keys((task.jsonSchema.properties ?? {}) as Record<string, unknown>).sort()
+      const required = (((task.jsonSchema.required ?? []) as string[])).slice().sort()
+
+      expect(props, `task ${task.name}: jsonSchema.properties drifted`).toEqual(zodKeys)
+      expect(required, `task ${task.name}: jsonSchema.required drifted`).toEqual(zodKeys)
+    }
   })
 })

@@ -53,8 +53,19 @@ test('usage rows are isolated and cannot be updated by their owner (insert-only 
   const { data: bobSees } = await bob.client.from('ai_usage').select('*')
   expect(bobSees).toEqual([])
 
-  // No update policy exists → an owner update must affect zero rows.
-  const { data: updated } = await alice.client
+  // UPDATE is revoked at the grant layer (stronger than RLS filtering): the attempt
+  // is refused outright with 42501, not silently reduced to zero rows.
+  const { data: updated, error: updateErr } = await alice.client
     .from('ai_usage').update({ output_tokens: 999999 }).eq('owner_id', alice.id).select()
-  expect(updated).toEqual([])
+  expect(updateErr?.code).toBe('42501')
+  expect(updated).toBeNull()
+
+  // Same for DELETE — the ledger is append-only even for its owner.
+  const { data: deleted, error: deleteErr } = await alice.client
+    .from('ai_usage').delete().eq('owner_id', alice.id).select()
+  expect(deleteErr?.code).toBe('42501')
+  expect(deleted).toBeNull()
+
+  const { data: still } = await alice.client.from('ai_usage').select('*')
+  expect(still!.length).toBeGreaterThanOrEqual(1)
 })

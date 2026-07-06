@@ -11,7 +11,12 @@ export async function recordUsage(
     output_tokens: number
   },
 ): Promise<void> {
-  const { error } = await supabase.from('ai_usage').insert(row)
-  // Metering failures must not eat a successful AI response; log and continue.
-  if (error) console.error('ai_usage insert failed', error)
+  // Metering failures must not eat a successful AI response — swallow BOTH the
+  // resolved-{error} shape and a thrown rejection; log and continue.
+  try {
+    const { error } = await supabase.from('ai_usage').insert(row)
+    if (error) console.error('ai_usage insert failed', error)
+  } catch (err) {
+    console.error('ai_usage insert threw', err)
+  }
 }
