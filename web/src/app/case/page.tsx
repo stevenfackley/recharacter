@@ -4,9 +4,6 @@ import { getServiceFacts } from '@/lib/facts'
 import { routeDischarge, type RoutingResult } from '@/lib/routing'
 import { getNexusAnswers, KURTA_QUESTIONS, answersComplete } from '@/lib/nexus'
 
-// Coaching shipped as part of the Plan 05 evidence step, not a standalone step.
-const LATER_STEPS = ['Packet'] as const
-
 const FLAG_TEXT: Record<string, string> = {
   PastDrbWindow: 'The 15-year Discharge Review Board window has closed for this discharge.',
   GeneralCourtMartialRequiresBcmr:
@@ -122,9 +119,14 @@ export default async function CasePage() {
         )}
       </section>
 
-      <ol start={6}>
-        {LATER_STEPS.map((step) => <li key={step}>{step} — not started</li>)}
-      </ol>
+      <section>
+        <h2>6. Packet — assemble and download</h2>
+        {facts?.confirmed ? (
+          <p><Link href="/case/packet">Review your filing packet</Link></p>
+        ) : (
+          <p>Confirm your service facts first.</p>
+        )}
+      </section>
 
       <form action="/auth/signout" method="post">
         <button type="submit">Sign out</button>
