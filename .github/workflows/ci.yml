@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rules-engine:
+    name: Rules engine (.NET)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test
+        run: dotnet test --nologo
+
+  web:
+    name: Web (build + unit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      # Dummy values so the production build succeeds without a live stack;
+      # nothing evaluates Supabase at build time, but the env access must not throw.
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-dummy-anon-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Unit tests (no Supabase required)
+        run: npx vitest run src
+
+  web-integration:
+    name: Web (RLS integration, local Supabase)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Install
+        working-directory: web
+        run: npm ci
+      - name: Start local Supabase
+        run: supabase start
+      - name: Write web/.env.local from supabase status
+        run: |
+          supabase status -o env > /tmp/sb.env
+          set -a; source /tmp/sb.env; set +a
+          cat > web/.env.local <<EOF
+          NEXT_PUBLIC_SUPABASE_URL=$API_URL
+          NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY
+          SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
+          EOF
+      - name: Full test suite (incl. RLS isolation)
+        working-directory: web
+        run: npx vitest run
