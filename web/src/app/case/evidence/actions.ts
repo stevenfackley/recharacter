@@ -4,8 +4,12 @@ import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { getOrCreateCase } from '@/lib/cases'
-import { caseContextSchema, saveCaseContext } from '@/lib/context'
+import { caseContextSchema, getCaseContext, saveCaseContext } from '@/lib/context'
 import { executeAiTask } from '@/lib/ai/gateway'
+import {
+  EVIDENCE_CATALOG, recommendEvidence, scoreCase,
+  type EvidenceStatusMap, type EvidenceType,
+} from '@/lib/evidence'
 
 export async function saveContext(formData: FormData) {
   const parsed = caseContextSchema.safeParse({
@@ -27,6 +31,9 @@ export async function setItemStatus(formData: FormData) {
   const itemType = String(formData.get('itemType') ?? '')
   const status = String(formData.get('status') ?? '')
   if (!STATUSES.includes(status)) redirect('/case/evidence')
+  // App-level allowlist symmetric with the status check (the DB check constraint
+  // remains the backstop, but a bad type shouldn't read as a transient error).
+  if (!(itemType in EVIDENCE_CATALOG)) redirect('/case/evidence')
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -56,27 +63,39 @@ export async function getCoaching(input: {
   return result.ok ? (result.data as { note: string }).note : null
 }
 
-/** Form entry point for "Encourage me" — reads the already-computed score/gap out of
- * hidden form fields (the page renders them), calls getCoaching, and hands the note
- * back via a query param for the page to render. Silent no-op if AI is unavailable. */
-export async function requestCoaching(formData: FormData) {
-  const score = Number(formData.get('score') ?? 0)
-  const bandRaw = String(formData.get('band') ?? 'building')
-  const band = (['building', 'developing', 'strong'] as const).includes(bandRaw as never)
-    ? (bandRaw as 'building' | 'developing' | 'strong')
-    : 'building'
-  const topGapLabelRaw = String(formData.get('topGapLabel') ?? '')
-  const topGapLabel = topGapLabelRaw === '' ? null : topGapLabelRaw
+/**
+ * useActionState entry point for "Encourage me". The note returns as the ACTION
+ * RESULT and is rendered in place — it never travels through a URL (query strings
+ * land in server logs, browser history, and Referer headers; same rule as the
+ * intake flow). Inputs are RECOMPUTED server-side rather than read from form
+ * fields, so the prompt can't be steered by client-edited hidden inputs.
+ */
+export async function requestCoaching(
+  _prev: { note: string | null },
+  _formData: FormData,
+): Promise<{ note: string | null }> {
+  const c = await getOrCreateCase()
+  const ctx = await getCaseContext(c.id)
+  if (!ctx) return { note: null }
 
-  let collectedLabels: string[] = []
-  try {
-    const raw = JSON.parse(String(formData.get('collectedLabels') ?? '[]'))
-    if (Array.isArray(raw)) collectedLabels = raw.map(String)
-  } catch {
-    collectedLabels = []
-  }
+  const supabase = await createClient()
+  const { data: itemRows } = await supabase
+    .from('evidence_items').select('item_type, status').eq('case_id', c.id)
+  const statuses: EvidenceStatusMap = Object.fromEntries(
+    (itemRows ?? []).map((r) => [r.item_type as EvidenceType, r.status]),
+  )
 
-  const note = await getCoaching({ score, band, topGapLabel, collectedLabels })
-  if (note) redirect('/case/evidence?coaching=' + encodeURIComponent(note))
-  redirect('/case/evidence')
+  const recommended = recommendEvidence(ctx)
+  const result = scoreCase(recommended, statuses)
+  const collectedLabels = recommended
+    .filter((item) => statuses[item.type] === 'collected')
+    .map((item) => item.label)
+
+  const note = await getCoaching({
+    score: result.score,
+    band: result.band,
+    topGapLabel: result.topGap?.label ?? null,
+    collectedLabels,
+  })
+  return { note }
 }

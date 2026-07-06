@@ -6,7 +6,8 @@ import {
   recommendEvidence, scoreCase,
   type EvidenceStatusMap, type EvidenceType,
 } from '@/lib/evidence'
-import { saveContext, setItemStatus, requestCoaching } from './actions'
+import { saveContext, setItemStatus } from './actions'
+import { CoachingSection } from './coaching'
 
 const CONDITION_OPTIONS = [
   { value: 'ptsd', label: 'PTSD' },
@@ -72,9 +73,6 @@ export default async function EvidencePage({
 
   const recommended = recommendEvidence(ctx)
   const result = scoreCase(recommended, statuses)
-  const collectedLabels = recommended
-    .filter((item) => statuses[item.type] === 'collected')
-    .map((item) => item.label)
 
   return (
     <main>
@@ -115,17 +113,7 @@ export default async function EvidencePage({
         they do not predict any board&apos;s decision.
       </p>
 
-      <section>
-        <h2>Encourage me</h2>
-        <form action={requestCoaching}>
-          <input type="hidden" name="score" value={result.score} />
-          <input type="hidden" name="band" value={result.band} />
-          <input type="hidden" name="topGapLabel" value={result.topGap?.label ?? ''} />
-          <input type="hidden" name="collectedLabels" value={JSON.stringify(collectedLabels)} />
-          <button type="submit">Encourage me</button>
-        </form>
-        {params.coaching && <p>{params.coaching}</p>}
-      </section>
+      <CoachingSection />
 
       <p><Link href="/case">Back to case</Link></p>
     </main>
