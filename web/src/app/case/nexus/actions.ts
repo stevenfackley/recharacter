@@ -59,7 +59,10 @@ export async function shapeAnswer(_prev: ShapeState, formData: FormData): Promis
     questionPrompt: question.prompt,
     rawNarrative,
   })
-  if (!result.ok) return { shapedAnswer: null, gaps: null }
+  if (!result.ok) {
+    if (result.status === 402) redirect('/case/upgrade')
+    return { shapedAnswer: null, gaps: null }
+  }
 
   const d = result.data as { shapedAnswer: string; gaps: string }
   return { shapedAnswer: d.shapedAnswer, gaps: d.gaps || null }

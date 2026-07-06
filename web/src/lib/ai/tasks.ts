@@ -24,6 +24,8 @@ export type AiTask = {
   jsonSchema: Record<string, unknown> & { additionalProperties: false }
   /** Returns a plain string OR an array of Anthropic content blocks (vision/PDF tasks). */
   buildPrompt: (input: unknown) => string | Array<Record<string, unknown>>
+  /** Gated behind the freemium boundary (design spec §10): paid unlock or BYOK required. */
+  premium?: true
 }
 
 const pingInput = z.object({ message: z.string().min(1).max(200) })
@@ -162,6 +164,7 @@ const shapeOutput = z.object({
 
 const shape_nexus_answer: AiTask = {
   name: 'shape_nexus_answer',
+  premium: true,
   model: 'claude-opus-4-8',
   system:
     'You help a veteran phrase their OWN account for one specific question a discharge review ' +
@@ -204,6 +207,7 @@ const draftOutput = z.object({ statement: z.string().min(1) })
 
 const draft_statement: AiTask = {
   name: 'draft_statement',
+  premium: true,
   model: 'claude-opus-4-8',
   system:
     'You assemble a personal statement for a veteran petitioning a discharge review board, ' +
@@ -250,6 +254,7 @@ const coverOutput = z.object({ letter: z.string().min(1) })
 
 const draft_cover_letter: AiTask = {
   name: 'draft_cover_letter',
+  premium: true,
   model: 'claude-opus-4-8',
   system:
     'You draft a short, formal cover letter for a discharge-upgrade application packet, inside ' +

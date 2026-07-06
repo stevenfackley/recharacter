@@ -4,6 +4,7 @@ import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
 import { routeDischarge } from '@/lib/routing'
 import { getDraft } from '@/lib/drafts'
+import { isEntitled } from '@/lib/billing'
 import { EVIDENCE_CATALOG, type EvidenceType } from '@/lib/evidence'
 import { buildPacketSections, type PacketInput } from '@/lib/packet/sections'
 import { renderPacket } from '@/lib/packet/render'
@@ -17,6 +18,13 @@ export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+
+  if (!(await isEntitled(supabase, user.id))) {
+    return NextResponse.json(
+      { error: 'Downloading your packet needs the case unlock or your own API key', upgrade: '/case/upgrade' },
+      { status: 402 },
+    )
+  }
 
   const c = await getOrCreateCase()
 
