@@ -22,7 +22,7 @@ The Kurta memo requires boards to weigh four things for a mental-health upgrade.
 1. Did the veteran have a condition or experience that may excuse or mitigate the discharge?
 2. Did that condition exist / experience occur during military service?
 3. Does that condition or experience actually excuse or mitigate the discharge?
-4. Does that condition or experience outweigh the misconduct?
+4. Does that condition or experience outweigh the discharge?
 
 The AI's job is to interview the veteran to fill these four board-defined slots and render them as prose — **not** to give open-ended legal advice.
 
