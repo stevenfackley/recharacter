@@ -9,6 +9,15 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+  // Server actions default to a 1 MB body limit, which silently breaks the
+  // document-upload flow for real DD-214 scans (typically 2-10 MB). 16 MB =
+  // the 15 MB app-level cap plus multipart overhead; the action still enforces
+  // the user-facing 15 MB limit with a friendly error.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '16mb',
+    },
+  },
 };
 
 export default nextConfig;
