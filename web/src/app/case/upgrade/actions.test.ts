@@ -110,6 +110,14 @@ describe('verifySession — the security-critical checks', () => {
     expect(mockGrantEntitlement).not.toHaveBeenCalled()
   })
 
+  test('refuses a fabricated or expired session id (Stripe retrieve throws) — fails closed', async () => {
+    mockSessionsRetrieve.mockRejectedValue(new Error('No such checkout.session: cs_fake'))
+    const { verifySession } = await import('./actions')
+
+    expect(await verifySession('cs_fake')).toBe(false)
+    expect(mockGrantEntitlement).not.toHaveBeenCalled()
+  })
+
   test('grants the entitlement for a paid session belonging to the signed-in user', async () => {
     mockSessionsRetrieve.mockResolvedValue({ payment_status: 'paid', client_reference_id: 'user-1' })
     const { verifySession } = await import('./actions')

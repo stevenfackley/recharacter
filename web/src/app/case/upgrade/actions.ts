@@ -61,7 +61,10 @@ export async function verifySession(sessionId: string): Promise<boolean> {
   let session
   try {
     session = await stripe.checkout.sessions.retrieve(sessionId)
-  } catch {
+  } catch (err) {
+    // Fabricated/expired session id, or a Stripe outage. Fail closed — but log,
+    // so a real outage doesn't silently read as "not granted" with no trace.
+    console.error('verifySession: session retrieve failed', err)
     return false
   }
 
