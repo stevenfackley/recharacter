@@ -23,8 +23,9 @@ const FORM_NAMES: Record<'DD293' | 'DD149', string> = {
   DD149: 'DD Form 149',
 }
 
-// Item number of the signature block — same position on both forms' row tables (worksheet.ts).
-const SIGNATURE_ITEM = '11'
+// Signature-item numbers on the OFFICIAL current revisions (verified against the
+// forms' text): DD-293 DEC 2019 → Item 29a; DD-149 JAN 2023 → Item 27a.
+const SIGNATURE_ITEMS: Record<'DD293' | 'DD149', string> = { DD293: '29a', DD149: '27a' }
 
 function paragraphLines(text: string): PacketLine[] {
   return text
@@ -102,7 +103,7 @@ function buildHowToFileSection(input: PacketInput): PacketSection {
     },
     {
       kind: 'body',
-      text: `Print, sign, and date the form by hand (Item ${SIGNATURE_ITEM}). Unsigned applications are returned.`,
+      text: `Print, sign, and date the form by hand (Item ${SIGNATURE_ITEMS[input.routing.recommendedForm]}). Unsigned applications are returned.`,
     },
     {
       kind: 'body',
