@@ -39,7 +39,9 @@ beforeEach(() => {
   // default: signed-in user with no BYOK credential and successful usage insert
   mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
   mockFrom.mockImplementation((table: string) => {
-    if (table === 'ai_credentials') {
+    if (table === 'ai_credentials' || table === 'entitlements') {
+      // default: no BYOK credential and no paid unlock (unentitled) — individual
+      // premium-gating tests override this to simulate an entitled account.
       return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }
     }
     return { insert: async () => ({ error: null }) }
@@ -98,5 +100,51 @@ describe('POST /api/ai/[task]', () => {
     })
     const res = await callRoute('ping', { message: 'hi' })
     expect(res.status).toBe(422)
+  })
+
+  test('ping (non-premium) is unaffected by the entitlement gate even when unentitled', async () => {
+    mockCreate.mockResolvedValue({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: JSON.stringify({ ok: true, echo: 'hi' }) }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    })
+    const res = await callRoute('ping', { message: 'hi' })
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('POST /api/ai/[task] — premium task gating (402)', () => {
+  const shapeBody = {
+    questionKey: 'q1',
+    questionPrompt: 'How did it happen?',
+    rawNarrative: 'It happened during a deployment.',
+  }
+
+  test('402 for a premium task with no entitlement and no BYOK key; the model is never called', async () => {
+    const res = await callRoute('shape_nexus_answer', shapeBody)
+    expect(res.status).toBe(402)
+    expect(mockCreate).not.toHaveBeenCalled()
+    expect((await res.json()).error).toBeTruthy()
+  })
+
+  test('a mocked entitlement row lets the premium task proceed', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'entitlements') {
+        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: 'ent-1' } }) }) }) }
+      }
+      if (table === 'ai_credentials') {
+        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }
+      }
+      return { insert: async () => ({ error: null }) }
+    })
+    mockCreate.mockResolvedValue({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: JSON.stringify({ shapedAnswer: 'During my deployment...', gaps: '' }) }],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    })
+
+    const res = await callRoute('shape_nexus_answer', shapeBody)
+    expect(res.status).toBe(200)
+    expect(mockCreate).toHaveBeenCalled()
   })
 })

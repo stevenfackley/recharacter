@@ -2,10 +2,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getTask } from '@/lib/ai/tasks'
 import { resolveApiKey, createAnthropicClient } from '@/lib/ai/provider'
 import { recordUsage } from '@/lib/ai/usage'
+import { isEntitled } from '@/lib/billing'
 
 export type AiTaskResult =
   | { ok: true; data: unknown }
-  | { ok: false; status: 400 | 404 | 422 | 502 | 503; error: string }
+  | { ok: false; status: 400 | 402 | 404 | 422 | 502 | 503; error: string }
 
 /**
  * The single execution path for every AI call (used by the API route AND by
@@ -25,6 +26,13 @@ export async function executeAiTask(
     prompt = task.buildPrompt(input)
   } catch {
     return { ok: false, status: 400, error: 'Invalid input for task' }
+  }
+
+  if (task.premium) {
+    const entitled = await isEntitled(supabase, userId)
+    if (!entitled) {
+      return { ok: false, status: 402, error: 'This feature needs the case unlock or your own API key' }
+    }
   }
 
   const { data: credential } = await supabase

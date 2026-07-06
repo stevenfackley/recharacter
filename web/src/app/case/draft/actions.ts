@@ -61,6 +61,7 @@ export async function generateStatement(formData: FormData) {
     collectedEvidence,
   })
   if (!result.ok) {
+    if (result.status === 402) redirect('/case/upgrade')
     redirect('/case/draft?error=' + encodeURIComponent(
       result.status === 503
         ? 'Drafting needs an AI key — you can also write your statement directly below'
@@ -115,6 +116,7 @@ export async function generateCoverLetter(formData: FormData) {
     conditionSummary,
   })
   if (!result.ok) {
+    if (result.status === 402) redirect('/case/upgrade')
     redirect('/case/draft?error=' + encodeURIComponent(
       result.status === 503
         ? 'Drafting needs an AI key — you can write your cover letter directly instead'

@@ -119,6 +119,16 @@ describe('task registry', () => {
     })).toThrow()
   })
 
+  test('exactly the premium trio is gated behind the freemium boundary', () => {
+    // Pins against accidental gating/ungating: intake extraction (acquisition cost),
+    // coaching_note, and ping stay free; the three AI-drafting surfaces are premium.
+    const premiumNames = Object.values(TASKS)
+      .filter((t) => t.premium)
+      .map((t) => t.name)
+      .sort()
+    expect(premiumNames).toEqual(['draft_cover_letter', 'draft_statement', 'shape_nexus_answer'])
+  })
+
   test('draft_cover_letter embeds board and form', () => {
     const cover = getTask('draft_cover_letter')!
     const prompt = cover.buildPrompt({
