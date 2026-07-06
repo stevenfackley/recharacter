@@ -69,11 +69,21 @@ beforeEach(() => {
   mockRouteDischarge.mockResolvedValue(ROUTING)
   mockGetDraft.mockImplementation(async (_caseId: string, kind: string) =>
     (kind === 'personal_statement' ? STATEMENT_DRAFT : COVER_LETTER_DRAFT))
-  mockFrom.mockImplementation(() => ({
-    select: () => ({
-      eq: async () => ({ data: [{ item_type: 'dd214', status: 'collected' }] }),
-    }),
-  }))
+  mockFrom.mockImplementation((table: string) => {
+    // Default: entitled via a paid unlock, so the existing (pre-billing) assertions
+    // below are unaffected by the new entitlement gate. The 402 tests override this.
+    if (table === 'entitlements') {
+      return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: 'ent-1' } }) }) }) }
+    }
+    if (table === 'ai_credentials') {
+      return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }
+    }
+    return {
+      select: () => ({
+        eq: async () => ({ data: [{ item_type: 'dd214', status: 'collected' }] }),
+      }),
+    }
+  })
 })
 
 describe('GET /api/packet', () => {
@@ -119,6 +129,43 @@ describe('GET /api/packet', () => {
   test('happy path succeeds without a cover-letter draft — the statement is the hard requirement', async () => {
     mockGetDraft.mockImplementation(async (_caseId: string, kind: string) =>
       (kind === 'personal_statement' ? STATEMENT_DRAFT : null))
+    const res = await callRoute()
+    expect(res.status).toBe(200)
+  })
+
+  test('402 when the user has no paid unlock and no BYOK key', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'entitlements' || table === 'ai_credentials') {
+        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }
+      }
+      return {
+        select: () => ({
+          eq: async () => ({ data: [{ item_type: 'dd214', status: 'collected' }] }),
+        }),
+      }
+    })
+    const res = await callRoute()
+    expect(res.status).toBe(402)
+    const body = await res.json()
+    expect(body.error).toBeTruthy()
+    expect(body.upgrade).toBe('/case/upgrade')
+    expect(mockRouteDischarge).not.toHaveBeenCalled()
+  })
+
+  test('a BYOK credential alone satisfies the gate (200, no paid unlock needed)', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'entitlements') {
+        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }
+      }
+      if (table === 'ai_credentials') {
+        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { owner_id: 'user-1' } }) }) }) }
+      }
+      return {
+        select: () => ({
+          eq: async () => ({ data: [{ item_type: 'dd214', status: 'collected' }] }),
+        }),
+      }
+    })
     const res = await callRoute()
     expect(res.status).toBe(200)
   })
