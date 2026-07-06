@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useEffect, useState } from 'react'
+import { useActionState, useState } from 'react'
 import { saveAnswer, shapeAnswer, type ShapeState } from './actions'
 import type { KurtaKey } from '@/lib/nexus'
 
@@ -24,9 +24,13 @@ export function NexusQuestion({
     { shapedAnswer: null, gaps: null },
   )
 
-  useEffect(() => {
-    if (state.shapedAnswer) setText(state.shapedAnswer)
-  }, [state.shapedAnswer])
+  // Adjust state during render (not in an effect) when a NEW proposal arrives —
+  // guarded so it fires once per proposal rather than on every re-render.
+  const [appliedShapedAnswer, setAppliedShapedAnswer] = useState<string | null>(null)
+  if (state.shapedAnswer && state.shapedAnswer !== appliedShapedAnswer) {
+    setAppliedShapedAnswer(state.shapedAnswer)
+    setText(state.shapedAnswer)
+  }
 
   return (
     <section>
