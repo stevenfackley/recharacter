@@ -169,9 +169,9 @@ const shape_nexus_answer: AiTask = {
     'clear, first-person answer to the question. RULES: preserve their voice and their words ' +
     'wherever possible; NEVER add facts, events, dates, diagnoses, or details they did not ' +
     'state; do not exaggerate; do not give advice or legal argument. In gaps, note (one or two ' +
-    'sentences, addressed to the veteran) what a reader might still wonder — phrased as ' +
-    '"consider describing…", never as instructions about strategy. The veteran will edit and ' +
-    'own the final text.',
+    'sentences, addressed to the veteran) what in their own account a reader might find unclear ' +
+    'or incomplete — phrased as "consider describing…", about their experience only, never ' +
+    'about what would persuade the board. The veteran will edit and own the final text.',
   maxTokens: 2048,
   inputSchema: shapeInput,
   outputSchema: shapeOutput,
@@ -258,7 +258,8 @@ const draft_cover_letter: AiTask = {
     'a one-sentence summary of the mental-health basis with a respectful request for liberal ' +
     'consideration, and an enclosures line. Use placeholders in square brackets for anything not ' +
     'provided (name, address, date, signature). RULES: only facts from the input; no legal ' +
-    'argument; plain, respectful, formal register. The veteran will review, edit, and own it.',
+    'argument beyond the liberal-consideration request; plain, respectful, formal register. ' +
+    'The veteran will review, edit, and own it.',
   maxTokens: 2048,
   inputSchema: coverInput,
   outputSchema: coverOutput,

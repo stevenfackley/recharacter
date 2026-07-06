@@ -6,7 +6,10 @@ import { executeAiTask } from '@/lib/ai/gateway'
 import { getOrCreateCase } from '@/lib/cases'
 import { KURTA_QUESTIONS, saveNexusAnswer } from '@/lib/nexus'
 
-const MAX_ANSWER_LENGTH = 8000
+// Must match the drafting task's per-answer cap (draftAnswers .max(6000) in
+// tasks.ts) — a longer answer would save fine and then permanently fail statement
+// generation with a misleading "try again" error.
+const MAX_ANSWER_LENGTH = 6000
 
 /** The human-owned save path: whatever text is in the textarea when Save is pressed. */
 export async function saveAnswer(formData: FormData) {
@@ -20,7 +23,7 @@ export async function saveAnswer(formData: FormData) {
 
   const text = String(formData.get('text') ?? '')
   if (text.length > MAX_ANSWER_LENGTH) {
-    redirect('/case/nexus?error=' + encodeURIComponent('Answer too long (8000 characters max)'))
+    redirect('/case/nexus?error=' + encodeURIComponent('Answer too long (6000 characters max)'))
   }
 
   const c = await getOrCreateCase()

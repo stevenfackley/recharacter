@@ -8,7 +8,7 @@ import { getServiceFacts } from '@/lib/facts'
 import { getCaseContext } from '@/lib/context'
 import { getNexusAnswers, answersComplete } from '@/lib/nexus'
 import { EVIDENCE_CATALOG, type EvidenceType } from '@/lib/evidence'
-import { getDraft, saveGeneratedDraft, saveEditedDraft, type DraftKind } from '@/lib/drafts'
+import { getDraft, regenerateAllowedFor, saveGeneratedDraft, saveEditedDraft, type DraftKind } from '@/lib/drafts'
 import { routeDischarge } from '@/lib/routing'
 
 const MAX_DRAFT_LENGTH = 50_000
@@ -26,8 +26,7 @@ const CONDITION_SUMMARY_LABELS: Record<string, string> = {
 /** False only when an existing EDITED draft would be silently clobbered without confirm=on. */
 async function regenerateAllowed(caseId: string, kind: DraftKind, formData: FormData): Promise<boolean> {
   const existing = await getDraft(caseId, kind)
-  if (!existing || !existing.edited) return true
-  return formData.get('confirm') === 'on'
+  return regenerateAllowedFor(existing, formData.get('confirm'))
 }
 
 /** Assembles the personal statement exclusively from the four approved Kurta answers. */

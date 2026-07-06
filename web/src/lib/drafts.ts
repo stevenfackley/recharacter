@@ -9,6 +9,19 @@ export type Draft = {
   generated_at: string
 }
 
+/**
+ * The regeneration confirm-gate: an EDITED draft is never silently overwritten.
+ * Pure so the invariant is directly unit-testable — fresh or machine-only drafts
+ * regenerate freely; a draft the veteran touched requires the explicit confirm.
+ */
+export function regenerateAllowedFor(
+  existing: Pick<Draft, 'edited'> | null,
+  confirmValue: unknown,
+): boolean {
+  if (!existing || !existing.edited) return true
+  return confirmValue === 'on'
+}
+
 export async function getDraft(caseId: string, kind: DraftKind): Promise<Draft | null> {
   const supabase = await createClient()
   const { data } = await supabase
