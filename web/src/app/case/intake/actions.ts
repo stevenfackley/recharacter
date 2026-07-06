@@ -1,0 +1,96 @@
+'use server'
+
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import { executeAiTask } from '@/lib/ai/gateway'
+import { getOrCreateCase } from '@/lib/cases'
+import { serviceFactsSchema, saveServiceFacts } from '@/lib/facts'
+
+const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
+const MAX_BYTES = 15 * 1024 * 1024
+
+/** Upload a separation document, extract facts with AI, save them UNCONFIRMED. */
+export async function uploadAndExtract(formData: FormData) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const file = formData.get('document')
+  if (!(file instanceof File) || file.size === 0) {
+    redirect('/case/intake?error=' + encodeURIComponent('Choose a file to upload'))
+  }
+  if (!ALLOWED_TYPES.includes(file.type)) {
+    redirect('/case/intake?error=' + encodeURIComponent('PDF, JPEG, PNG, or WebP only'))
+  }
+  if (file.size > MAX_BYTES) {
+    redirect('/case/intake?error=' + encodeURIComponent('File too large (15 MB max)'))
+  }
+
+  const c = await getOrCreateCase()
+  const bytes = Buffer.from(await file.arrayBuffer())
+
+  // Durable record first (path convention {user}/{case}/{file} — enforced by storage RLS).
+  const path = `${user!.id}/${c.id}/${crypto.randomUUID()}-${file.name}`
+  const { error: upErr } = await supabase.storage
+    .from('case-documents')
+    .upload(path, bytes, { contentType: file.type })
+  if (upErr) {
+    redirect('/case/intake?error=' + encodeURIComponent('Upload failed; try again'))
+  }
+
+  // Extraction is a bounded task; the result only PREFILLS the review form.
+  const result = await executeAiTask(supabase, user!.id, 'extract_service_facts', {
+    documentBase64: bytes.toString('base64'),
+    mediaType: file.type,
+  })
+  if (!result.ok) {
+    redirect('/case/intake?error=' + encodeURIComponent(
+      'Could not read the document automatically — enter your facts below',
+    ))
+  }
+
+  const d = result.data as {
+    branch: string | null; dischargeDate: string | null
+    characterization: string | null; wasGeneralCourtMartial: boolean | null
+  }
+
+  // Save only if extraction produced a COMPLETE, valid fact set; partial results
+  // still prefill the form via query params. Either way the veteran must confirm.
+  const candidate = {
+    branch: d.branch, dischargeDate: d.dischargeDate,
+    characterization: d.characterization,
+    wasGeneralCourtMartial: d.wasGeneralCourtMartial ?? false,
+  }
+  const parsed = serviceFactsSchema.safeParse(candidate)
+  if (parsed.success) {
+    await saveServiceFacts(c.id, parsed.data, { source: 'extracted', confirmed: false })
+    redirect('/case/intake?extracted=1')
+  }
+  const qs = new URLSearchParams()
+  if (d.branch) qs.set('branch', d.branch)
+  if (d.dischargeDate) qs.set('dischargeDate', d.dischargeDate)
+  if (d.characterization) qs.set('characterization', d.characterization)
+  qs.set('partial', '1')
+  redirect(`/case/intake?${qs.toString()}`)
+}
+
+/** The human-confirmation gate: the veteran reviews and submits the final facts. */
+export async function confirmFacts(formData: FormData) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const c = await getOrCreateCase()
+  const parsed = serviceFactsSchema.safeParse({
+    branch: String(formData.get('branch') ?? ''),
+    dischargeDate: String(formData.get('dischargeDate') ?? ''),
+    characterization: String(formData.get('characterization') ?? ''),
+    wasGeneralCourtMartial: formData.get('wasGeneralCourtMartial') === 'on',
+  })
+  if (!parsed.success) {
+    redirect('/case/intake?error=' + encodeURIComponent('Check the highlighted fields'))
+  }
+
+  await saveServiceFacts(c.id, parsed.data, { source: 'manual', confirmed: true })
+  redirect('/case')
+}
