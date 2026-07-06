@@ -15,6 +15,15 @@ export async function getOrCreateCase(): Promise<Case> {
 
   const { data: created, error } = await supabase
     .from('cases').insert({ owner_id: user.id }).select().single()
-  if (error) throw error
+  if (error) {
+    // 23505 = unique_violation on cases_one_per_owner: a concurrent request won the
+    // creation race between our select and insert. The row exists now — fetch it.
+    if (error.code === '23505') {
+      const { data: raced } = await supabase
+        .from('cases').select('*').eq('owner_id', user.id).single()
+      if (raced) return raced as Case
+    }
+    throw error
+  }
   return created as Case
 }

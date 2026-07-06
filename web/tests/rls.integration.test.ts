@@ -65,3 +65,28 @@ test('an anonymous client sees no cases', async () => {
   const { data } = await anon.from('cases').select('*')
   expect(data).toEqual([])
 })
+
+test('a user CANNOT update another user\'s case', async () => {
+  // Alice has a case from the first test. An RLS-filtered UPDATE affects zero rows.
+  const { data: updated } = await bob.client
+    .from('cases')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('owner_id', alice.id)
+    .select()
+  expect(updated).toEqual([])
+})
+
+test('a user CANNOT delete another user\'s case', async () => {
+  const { data: deleted } = await bob.client
+    .from('cases').delete().eq('owner_id', alice.id).select()
+  expect(deleted).toEqual([])
+
+  // Alice's case must still exist.
+  const { data: still } = await alice.client.from('cases').select('*')
+  expect(still!.length).toBeGreaterThanOrEqual(1)
+})
+
+test('a second case for the same owner violates the one-per-owner constraint', async () => {
+  const { error } = await alice.client.from('cases').insert({ owner_id: alice.id })
+  expect(error?.code).toBe('23505') // cases_one_per_owner unique index
+})
