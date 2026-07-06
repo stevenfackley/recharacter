@@ -11,10 +11,12 @@ export default async function IntakePage({
   const c = await getOrCreateCase()
   const facts = await getServiceFacts(c.id)
 
+  // Prefill comes ONLY from the database (unconfirmed extracted rows included) —
+  // never from query params, which must stay free of personal data.
   const prefill = {
-    branch: params.branch ?? facts?.branch ?? '',
-    dischargeDate: params.dischargeDate ?? facts?.dischargeDate ?? '',
-    characterization: params.characterization ?? facts?.characterization ?? '',
+    branch: facts?.branch ?? '',
+    dischargeDate: facts?.dischargeDate ?? '',
+    characterization: facts?.characterization ?? '',
     wasGeneralCourtMartial: facts?.wasGeneralCourtMartial ?? false,
   }
 

@@ -51,7 +51,9 @@ const ping: AiTask = {
 }
 
 const extractInput = z.object({
-  documentBase64: z.string().min(1),
+  // ~15 MB base64-inflated: the task boundary enforces its own cap so callers
+  // bypassing the upload action's limit still can't trigger an unbounded call.
+  documentBase64: z.string().min(1).max(21_000_000),
   mediaType: z.enum(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']),
   notes: z.string().max(2000).optional(),
 })

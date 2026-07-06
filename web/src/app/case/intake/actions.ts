@@ -30,7 +30,10 @@ export async function uploadAndExtract(formData: FormData) {
   const bytes = Buffer.from(await file.arrayBuffer())
 
   // Durable record first (path convention {user}/{case}/{file} — enforced by storage RLS).
-  const path = `${user!.id}/${c.id}/${crypto.randomUUID()}-${file.name}`
+  // file.name is client-controlled: strip anything that isn't a safe key character so
+  // slashes/'..' can't produce odd keys (RLS already pins the {user} prefix regardless).
+  const safeName = file.name.replace(/[^\w.\-]/g, '_')
+  const path = `${user!.id}/${c.id}/${crypto.randomUUID()}-${safeName}`
   const { error: upErr } = await supabase.storage
     .from('case-documents')
     .upload(path, bytes, { contentType: file.type })
@@ -54,8 +57,12 @@ export async function uploadAndExtract(formData: FormData) {
     characterization: string | null; wasGeneralCourtMartial: boolean | null
   }
 
-  // Save only if extraction produced a COMPLETE, valid fact set; partial results
-  // still prefill the form via query params. Either way the veteran must confirm.
+  // Save only if extraction produced a COMPLETE, valid fact set (unconfirmed —
+  // the veteran must review). For PARTIAL extractions we deliberately do NOT
+  // forward the fields through query params: characterization/discharge date are
+  // stigmatizing personal data and query strings land in server logs, browser
+  // history, and Referer headers. The veteran re-enters what we couldn't read.
+  // (Future: persist partials server-side as an unconfirmed draft.)
   const candidate = {
     branch: d.branch, dischargeDate: d.dischargeDate,
     characterization: d.characterization,
@@ -66,12 +73,7 @@ export async function uploadAndExtract(formData: FormData) {
     await saveServiceFacts(c.id, parsed.data, { source: 'extracted', confirmed: false })
     redirect('/case/intake?extracted=1')
   }
-  const qs = new URLSearchParams()
-  if (d.branch) qs.set('branch', d.branch)
-  if (d.dischargeDate) qs.set('dischargeDate', d.dischargeDate)
-  if (d.characterization) qs.set('characterization', d.characterization)
-  qs.set('partial', '1')
-  redirect(`/case/intake?${qs.toString()}`)
+  redirect('/case/intake?partial=1')
 }
 
 /** The human-confirmation gate: the veteran reviews and submits the final facts. */
