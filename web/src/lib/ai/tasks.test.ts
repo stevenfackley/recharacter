@@ -93,4 +93,40 @@ describe('task registry', () => {
     expect(coaching.outputSchema.safeParse({ note: 'Keep going.' }).success).toBe(true)
     expect(coaching.outputSchema.safeParse({ advice: 'sue them' }).success).toBe(false)
   })
+
+  test('shape_nexus_answer validates input and embeds the narrative', () => {
+    const shape = getTask('shape_nexus_answer')!
+    expect(() => shape.buildPrompt({ questionKey: 'q9', rawNarrative: 'x' })).toThrow()
+    const prompt = shape.buildPrompt({
+      questionKey: 'q3',
+      questionPrompt: 'How did it connect to the conduct that led to your discharge?',
+      rawNarrative: 'I was being threatened daily and stopped sleeping...',
+    }) as string
+    expect(prompt).toContain('threatened daily')
+  })
+
+  test('shape_nexus_answer output shape', () => {
+    const shape = getTask('shape_nexus_answer')!
+    expect(shape.outputSchema.safeParse({
+      shapedAnswer: 'During my second year...', gaps: 'Consider adding dates.',
+    }).success).toBe(true)
+  })
+
+  test('draft_statement requires all four answers', () => {
+    const draft = getTask('draft_statement')!
+    expect(() => draft.buildPrompt({
+      answers: { q1_condition: 'a', q2_during_service: 'b', q3_mitigation: 'c' },
+    })).toThrow()
+  })
+
+  test('draft_cover_letter embeds board and form', () => {
+    const cover = getTask('draft_cover_letter')!
+    const prompt = cover.buildPrompt({
+      boardName: 'NDRB', form: 'DD293',
+      branch: 'MarineCorps', characterization: 'OtherThanHonorable',
+      conditionSummary: 'adjustment disorder arising in service',
+    }) as string
+    expect(prompt).toContain('NDRB')
+    expect(prompt).toContain('DD293')
+  })
 })
