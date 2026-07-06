@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { updateSession } from '@/lib/supabase/middleware'
 
-const PROTECTED = ['/case']
+const PROTECTED = ['/case', '/settings']
 
 // Next 16 convention: proxy.ts replaces the deprecated middleware.ts.
 export async function proxy(request: NextRequest) {
