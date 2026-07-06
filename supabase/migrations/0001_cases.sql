@@ -8,6 +8,14 @@ create table public.cases (
 
 create index cases_owner_id_idx on public.cases (owner_id);
 
+-- Table-level privileges are the FIRST gate; RLS below is the second. Grant explicitly
+-- rather than relying on the schema's default privileges — those vary by Supabase
+-- CLI/image version (CI runs latest and does not apply them), and RLS should be the
+-- only intentional gate. anon gets select so unauthenticated reads return an
+-- RLS-filtered empty set instead of a hard permission error.
+grant select, insert, update, delete on public.cases to authenticated;
+grant select on public.cases to anon;
+
 -- Row-level security: a user may touch ONLY their own cases. Default-deny once enabled.
 alter table public.cases enable row level security;
 

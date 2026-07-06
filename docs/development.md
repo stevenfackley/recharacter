@@ -56,7 +56,7 @@ supabase db reset                            # re-apply all migrations (wipes lo
 
 ## Database migrations
 
-Add a numbered file under `supabase/migrations/` (e.g. `0002_ai.sql`), then `supabase db reset`. **Every new table must**: enable RLS, define owner-scoped policies, and gain a two-user isolation test in `web/tests/` before it ships.
+Add a numbered file under `supabase/migrations/` (e.g. `0003_ai.sql`), then `supabase db reset`. **Every new table must**: enable RLS, define owner-scoped policies, **grant table privileges explicitly** (`grant ... to authenticated` — schema default privileges vary by CLI/image version and CI runs latest; Postgres checks GRANTs *before* RLS), and gain a two-user isolation test in `web/tests/` before it ships.
 
 ## Known gotchas
 

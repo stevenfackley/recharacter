@@ -63,6 +63,11 @@ create table public.ai_credentials (
     updated_at timestamptz not null default now()
 );
 
+-- Explicit grants: Postgres checks table privileges BEFORE RLS, and schema default
+-- privileges vary by Supabase CLI/image version (CI runs latest). RLS is the only
+-- intentional gate.
+grant select, insert, update, delete on public.ai_credentials to authenticated;
+
 alter table public.ai_credentials enable row level security;
 
 create policy ai_credentials_select_own on public.ai_credentials
@@ -88,6 +93,10 @@ create table public.ai_usage (
 );
 
 create index ai_usage_owner_created_idx on public.ai_usage (owner_id, created_at desc);
+
+-- Insert-only ledger: grant no update/delete at all — the GRANT layer enforces
+-- immutability even before RLS gets a say.
+grant select, insert on public.ai_usage to authenticated;
 
 alter table public.ai_usage enable row level security;
 
