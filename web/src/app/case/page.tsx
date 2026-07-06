@@ -2,8 +2,10 @@ import Link from 'next/link'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
 import { routeDischarge, type RoutingResult } from '@/lib/routing'
+import { getNexusAnswers, KURTA_QUESTIONS, answersComplete } from '@/lib/nexus'
 
-const LATER_STEPS = ['Nexus', 'Draft', 'Coaching', 'Packet'] as const
+// Coaching shipped as part of the Plan 05 evidence step, not a standalone step.
+const LATER_STEPS = ['Packet'] as const
 
 const FLAG_TEXT: Record<string, string> = {
   PastDrbWindow: 'The 15-year Discharge Review Board window has closed for this discharge.',
@@ -22,6 +24,11 @@ const FLAG_TEXT: Record<string, string> = {
 export default async function CasePage() {
   const c = await getOrCreateCase()
   const facts = await getServiceFacts(c.id)
+  const answers = await getNexusAnswers(c.id)
+  const nexusFilledCount = KURTA_QUESTIONS.filter(
+    (q) => (answers?.[q.column] ?? '').trim().length > 0,
+  ).length
+  const nexusComplete = answers ? answersComplete(answers) : false
 
   let routing: RoutingResult | null = null
   let routingError = false
@@ -95,7 +102,27 @@ export default async function CasePage() {
         )}
       </section>
 
-      <ol start={4}>
+      <section>
+        <h2>4. Nexus — the four questions</h2>
+        {facts?.confirmed ? (
+          <p>
+            <Link href="/case/nexus">Answer the four Kurta questions</Link> — {nexusFilledCount} of 4 answered.
+          </p>
+        ) : (
+          <p>Confirm your service facts first.</p>
+        )}
+      </section>
+
+      <section>
+        <h2>5. Draft — statement and cover letter</h2>
+        {nexusComplete ? (
+          <p><Link href="/case/draft">Generate and edit your draft documents</Link></p>
+        ) : (
+          <p>Answer all four Kurta questions first.</p>
+        )}
+      </section>
+
+      <ol start={6}>
         {LATER_STEPS.map((step) => <li key={step}>{step} — not started</li>)}
       </ol>
 
