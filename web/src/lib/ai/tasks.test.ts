@@ -43,4 +43,36 @@ describe('task registry', () => {
       expect(required, `task ${task.name}: jsonSchema.required drifted`).toEqual(zodKeys)
     }
   })
+
+  test('extract_service_facts builds document content blocks', () => {
+    const extract = getTask('extract_service_facts')!
+    const content = extract.buildPrompt({
+      documentBase64: 'aGVsbG8=',
+      mediaType: 'application/pdf',
+    }) as Array<Record<string, unknown>>
+
+    expect(Array.isArray(content)).toBe(true)
+    const doc = content.find((b) => b.type === 'document') as Record<string, unknown>
+    expect((doc.source as Record<string, unknown>).data).toBe('aGVsbG8=')
+    expect(content.some((b) => b.type === 'text')).toBe(true)
+  })
+
+  test('extract_service_facts uses an image block for images', () => {
+    const extract = getTask('extract_service_facts')!
+    const content = extract.buildPrompt({
+      documentBase64: 'aGVsbG8=',
+      mediaType: 'image/jpeg',
+    }) as Array<Record<string, unknown>>
+    expect(content.some((b) => b.type === 'image')).toBe(true)
+    expect(content.some((b) => b.type === 'document')).toBe(false)
+  })
+
+  test('extract_service_facts output allows nulls for unreadable fields', () => {
+    const extract = getTask('extract_service_facts')!
+    const parsed = extract.outputSchema.safeParse({
+      branch: null, dischargeDate: null, characterization: null,
+      wasGeneralCourtMartial: null, notes: 'document illegible',
+    })
+    expect(parsed.success).toBe(true)
+  })
 })

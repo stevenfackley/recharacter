@@ -50,7 +50,10 @@ export async function executeAiTask(
       max_tokens: task.maxTokens,
       thinking: { type: 'adaptive' },
       system: task.system,
-      messages: [{ role: 'user', content: prompt }],
+      // buildPrompt returns a string OR our own loose content-block shape (vision/PDF
+      // tasks) — the cast avoids coupling to the SDK's internal ContentBlockParam type
+      // path; the wire shape (what the SDK actually accepts) is what matters here.
+      messages: [{ role: 'user', content: prompt as never }],
       output_config: { format: { type: 'json_schema', schema: task.jsonSchema } },
     })
   } catch (err) {
