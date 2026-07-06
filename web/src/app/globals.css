@@ -1,49 +1,603 @@
+/* ReCharacter — "the records office, on the veteran's side of the desk."
+   Every page in this app is bare semantic HTML by design; this stylesheet is
+   the whole visual identity. Tokens first, then element-level styling.
+
+   Palette: cool bond paper + blue-black record ink; one steady interactive
+   blue (file-blue); stamp green/red reserved for status verdicts only. */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --paper: #f2f4f1;
+  --surface: #fbfcfa;
+  --ink: #20262b;
+  --ledger: #55616b;
+  --rule: #d7dcd6;
+  --file-blue: #2b4c7e;
+  --file-blue-press: #23406c;
+  --stamp-green: #2f6b4f;
+  --stamp-red: #9e2b25;
+  --focus: #2b4c7e;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 html {
   height: 100%;
 }
 
-html,
 body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
+  margin: 0;
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body), "Public Sans", system-ui, sans-serif;
+  font-size: 1rem;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+/* ---------- Chrome: header + footer ---------- */
+
+.site-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.1rem clamp(1rem, 4vw, 2.5rem);
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
 }
 
-a {
-  color: inherit;
+.wordmark {
+  font-family: var(--font-display), "Zilla Slab", serif;
+  font-weight: 600;
+  font-size: 1.35rem;
+  letter-spacing: 0.01em;
+  color: var(--ink);
   text-decoration: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
+.wordmark-re {
+  color: var(--stamp-green);
+}
+
+.site-header nav {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.site-header nav a {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ledger);
+  text-decoration: none;
+}
+
+.site-header nav a:hover {
+  color: var(--file-blue);
+}
+
+.site-footer {
+  margin-top: auto;
+  padding: 1.25rem clamp(1rem, 4vw, 2.5rem) 2rem;
+  border-top: 1px solid var(--rule);
+  font-family: var(--font-mono), "IBM Plex Mono", monospace;
+  font-size: 0.75rem;
+  color: var(--ledger);
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- Page column ---------- */
+
+main {
+  width: 100%;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 1.75rem 1.25rem 3.5rem;
+}
+
+/* ---------- Type ---------- */
+
+h1 {
+  font-family: var(--font-display), "Zilla Slab", serif;
+  font-weight: 600;
+  font-size: clamp(1.7rem, 4.5vw, 2.15rem);
+  line-height: 1.2;
+  margin: 0 0 1rem;
+}
+
+h2 {
+  font-family: var(--font-display), "Zilla Slab", serif;
+  font-weight: 500;
+  font-size: 1.3rem;
+  line-height: 1.3;
+  margin: 1.5rem 0 0.4rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--rule); /* each section reads as a form part */
+}
+
+h3 {
+  font-weight: 600;
+  font-size: 1.05rem;
+  margin: 2rem 0 0.35rem;
+}
+
+p {
+  margin: 0.5rem 0 1rem;
+  max-width: 65ch;
+}
+
+a {
+  color: var(--file-blue);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+a:hover {
+  color: var(--file-blue-press);
+}
+
+strong {
+  font-weight: 600;
+}
+
+ul,
+ol {
+  padding-left: 1.4rem;
+  margin: 0.5rem 0 1.25rem;
+}
+
+li {
+  margin: 0.6rem 0;
+  max-width: 65ch;
+}
+
+/* The case page's step list and evidence checklist breathe more */
+main > ol > li,
+main > ul > li {
+  margin: 0.9rem 0;
+}
+
+/* ---------- Forms ---------- */
+
+form {
+  margin: 0.75rem 0 1.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ledger);
+  width: 100%;
+  max-width: 28rem;
+}
+
+/* Checkbox labels sit inline, reading as one clause */
+label:has(input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.55rem;
+  font-weight: 400;
+  color: var(--ink);
+  max-width: 34rem;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.55rem 0.7rem;
+  width: 100%;
+}
+
+input[type="checkbox"] {
+  width: auto;
+  accent-color: var(--file-blue);
+}
+
+input[type="file"] {
+  border-style: dashed;
+  padding: 0.9rem 0.7rem;
+  max-width: 28rem;
+}
+
+textarea {
+  min-height: 8.5rem;
+  max-width: 100%;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+button {
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--surface);
+  background: var(--file-blue);
+  border: 1px solid var(--file-blue);
+  border-radius: 3px;
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--file-blue-press);
+  border-color: var(--file-blue-press);
+}
+
+button:disabled {
+  background: var(--rule);
+  border-color: var(--rule);
+  color: var(--ledger);
+  cursor: not-allowed;
+}
+
+/* Buttons that sit beside a primary action in the same form read as secondary */
+form button ~ button {
+  background: transparent;
+  color: var(--file-blue);
+  border-color: var(--file-blue);
+}
+
+form button ~ button:hover {
+  background: rgba(43, 76, 126, 0.08);
+}
+
+form button ~ button:disabled {
+  background: transparent;
+  color: var(--ledger);
+  border-color: var(--rule);
+}
+
+/* Inline per-item forms (evidence statuses) sit in a row */
+li form {
+  flex-direction: row;
+  align-items: end;
+  gap: 0.6rem;
+  margin: 0.4rem 0 0.25rem;
+}
+
+li form label {
+  max-width: 14rem;
+}
+
+/* ---------- The signature: stamps ----------
+   Status and alert lines render as inked rubber stamps — the object that
+   decided every veteran's characterization, now working for them. */
+
+[role="status"],
+[role="alert"] {
+  display: inline-block;
+  font-family: var(--font-mono), "IBM Plex Mono", monospace;
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  padding: 0.5rem 0.8rem;
+  border: 2px solid var(--stamp-green);
+  border-radius: 3px;
+  color: var(--stamp-green);
+  background: var(--surface);
+  transform: rotate(-0.4deg);
+  max-width: 60ch;
+  margin: 0.5rem 0 1rem;
+}
+
+[role="alert"] {
+  border-color: var(--stamp-red);
+  color: var(--stamp-red);
+  transform: rotate(0.4deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [role="status"],
+  [role="alert"] {
+    transform: none;
+  }
+}
+
+/* ---------- Landing page ---------- */
+
+.land {
+  max-width: 64rem;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 2.5rem;
+  align-items: center;
+  padding: 1.5rem 0 0.75rem;
+}
+
+@media (max-width: 860px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.5rem;
+  }
+}
+
+.hero h1 {
+  font-size: clamp(2.1rem, 6vw, 3rem);
+  line-height: 1.12;
+  margin-bottom: 0.75rem;
+}
+
+.hero .lede {
+  font-size: 1.08rem;
+  color: var(--ledger);
+  max-width: 46ch;
+}
+
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  align-items: center;
+  margin: 1.25rem 0 0.5rem;
+}
+
+.button-link {
+  display: inline-block;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--surface);
+  background: var(--file-blue);
+  border: 1px solid var(--file-blue);
+  border-radius: 3px;
+  padding: 0.6rem 1.25rem;
+  text-decoration: none;
+}
+
+.button-link:hover {
+  background: var(--file-blue-press);
+  color: var(--surface);
+}
+
+.button-link.quiet {
+  background: transparent;
+  color: var(--file-blue);
+}
+
+.button-link.quiet:hover {
+  background: rgba(43, 76, 126, 0.08);
+}
+
+/* The record card: the re-stamp moment, in pure HTML/CSS */
+.record-card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 1.4rem 1.5rem 1.6rem;
+  font-family: var(--font-mono), "IBM Plex Mono", monospace;
+  box-shadow: 0 1px 0 var(--rule);
+  width: 100%;
+  max-width: 34rem;
+  justify-self: end;
+}
+
+@media (max-width: 860px) {
+  .record-card {
+    justify-self: start;
+  }
+}
+
+.record-card .field-label {
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  color: var(--ledger);
+  margin-bottom: 0.8rem;
+}
+
+.stamp {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  padding: 0.45rem 0.75rem;
+  border: 2px solid;
+  border-radius: 3px;
+  background: var(--surface);
+  margin: 0.25rem 0;
+}
+
+.stamp.struck {
+  color: var(--stamp-red);
+  border-color: var(--stamp-red);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  opacity: 0.65;
+  transform: rotate(-0.6deg);
+}
+
+.stamp.granted {
+  color: var(--stamp-green);
+  border-color: var(--stamp-green);
+  transform: rotate(0.8deg);
+  margin-left: 1.25rem;
+}
+
+.record-card .card-footnote {
+  display: block;
+  margin-top: 1rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--ledger);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stamp.struck,
+  .stamp.granted {
+    transform: none;
+  }
+}
+
+/* How-it-works: a real sequence, so numbers carry information */
+.steps {
+  list-style: none;
+  padding: 0;
+  counter-reset: step;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 2.25rem;
+  row-gap: 0.4rem;
+}
+
+@media (max-width: 720px) {
+  .steps {
+    grid-template-columns: 1fr;
+  }
+}
+
+.steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 2.4rem 1fr;
+  gap: 0.9rem;
+  margin: 0.7rem 0;
+  max-width: none;
+}
+
+.steps li::before {
+  content: counter(step, decimal-leading-zero);
+  font-family: var(--font-mono), "IBM Plex Mono", monospace;
+  font-size: 0.85rem;
+  color: var(--ledger);
+  border-top: 2px solid var(--ink);
+  padding-top: 0.35rem;
+}
+
+.steps li strong {
+  display: block;
+}
+
+.steps li p {
+  margin: 0.15rem 0 0;
+  color: var(--ledger);
+  font-size: 0.95rem;
+}
+
+/* Free vs unlocked */
+.tiers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.tier {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 1.1rem 1.25rem;
+}
+
+.tier h3 {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-mono), "IBM Plex Mono", monospace;
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--ledger);
+}
+
+.tier ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.tier li {
+  margin: 0.4rem 0;
+  font-size: 0.95rem;
+}
+
+/* FAQ: native disclosure, no JS */
+details {
+  border-top: 1px solid var(--rule);
+  padding: 0.6rem 0;
+}
+
+details:last-of-type {
+  border-bottom: 1px solid var(--rule);
+}
+
+summary {
+  font-weight: 600;
+  cursor: pointer;
+}
+
+details p {
+  margin: 0.6rem 0 0.25rem;
+  color: var(--ledger);
+}
+
+/* The honesty strip */
+.posture {
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--stamp-green);
+  background: var(--surface);
+  border-radius: 3px;
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+}
+
+.posture p {
+  margin: 0.35rem 0;
+  font-size: 0.95rem;
+  max-width: none;
+}
+
+.footer-links {
+  display: block;
+  margin-top: 0.5rem;
+}
+
+.footer-links a {
+  color: var(--ledger);
+  margin: 0 0.5rem;
+}
+
+/* ---------- Small screens ---------- */
+
+@media (max-width: 480px) {
+  .site-header {
+    flex-direction: column;
+    gap: 0.35rem;
+    align-items: flex-start;
+  }
+
+  li form {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .stamp.granted {
+    margin-left: 0.5rem;
   }
 }
