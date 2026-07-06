@@ -94,9 +94,12 @@ create table public.ai_usage (
 
 create index ai_usage_owner_created_idx on public.ai_usage (owner_id, created_at desc);
 
--- Insert-only ledger: grant no update/delete at all — the GRANT layer enforces
--- immutability even before RLS gets a say.
+-- Insert-only ledger. Supabase's schema default privileges may have ALREADY granted
+-- full DML at table creation, so the grant is additive — the REVOKE is what actually
+-- strips mutation at the privilege layer. RLS (no update/delete policy) is the
+-- second, independent gate.
 grant select, insert on public.ai_usage to authenticated;
+revoke update, delete, truncate on public.ai_usage from authenticated, anon;
 
 alter table public.ai_usage enable row level security;
 
