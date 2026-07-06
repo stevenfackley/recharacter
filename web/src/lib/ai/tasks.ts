@@ -112,7 +112,45 @@ const extract_service_facts: AiTask = {
   },
 }
 
-export const TASKS: Record<string, AiTask> = { ping, extract_service_facts }
+const coachingInput = z.object({
+  score: z.number().int().min(0).max(100),
+  band: z.enum(['building', 'developing', 'strong']),
+  topGapLabel: z.string().nullable(),
+  collectedLabels: z.array(z.string()).max(10),
+})
+
+const coachingOutput = z.object({ note: z.string().min(1).max(800) })
+
+const coaching_note: AiTask = {
+  name: 'coaching_note',
+  model: 'claude-opus-4-8',
+  system:
+    'You write a short, warm, plain-English encouragement note for a veteran assembling ' +
+    'evidence for a discharge-upgrade petition, inside a document-assembly application. ' +
+    'You are given a completeness score, its band, what they have collected, and the single ' +
+    'highest-value missing item. Write 2-3 sentences: acknowledge progress specifically, then ' +
+    'point at the one next step. Never predict outcomes, never give legal advice or strategy, ' +
+    'never mention lawyers or deadlines. The note is informational encouragement only.',
+  maxTokens: 512,
+  inputSchema: coachingInput,
+  outputSchema: coachingOutput,
+  jsonSchema: {
+    type: 'object',
+    properties: { note: { type: 'string' } },
+    required: ['note'],
+    additionalProperties: false,
+  },
+  buildPrompt: (input) => {
+    const { score, band, topGapLabel, collectedLabels } = coachingInput.parse(input)
+    return (
+      `Completeness score: ${score}/100 (${band}). ` +
+      `Collected so far: ${collectedLabels.length ? collectedLabels.join('; ') : 'nothing yet'}. ` +
+      `Highest-value missing item: ${topGapLabel ?? 'none — everything applicable is collected'}.`
+    )
+  },
+}
+
+export const TASKS: Record<string, AiTask> = { ping, extract_service_facts, coaching_note }
 
 export function getTask(name: string): AiTask | undefined {
   return TASKS[name]

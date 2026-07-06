@@ -75,4 +75,22 @@ describe('task registry', () => {
     })
     expect(parsed.success).toBe(true)
   })
+
+  test('coaching_note validates its structured input', () => {
+    const coaching = getTask('coaching_note')!
+    expect(() => coaching.buildPrompt({ score: 'high' })).toThrow()
+    const prompt = coaching.buildPrompt({
+      score: 35, band: 'building',
+      topGapLabel: 'Nexus letter from a mental-health clinician',
+      collectedLabels: ['DD-214'],
+    }) as string
+    expect(prompt).toContain('35')
+    expect(prompt).toContain('Nexus letter')
+  })
+
+  test('coaching_note output is a bounded note', () => {
+    const coaching = getTask('coaching_note')!
+    expect(coaching.outputSchema.safeParse({ note: 'Keep going.' }).success).toBe(true)
+    expect(coaching.outputSchema.safeParse({ advice: 'sue them' }).success).toBe(false)
+  })
 })
