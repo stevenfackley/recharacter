@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
@@ -52,5 +53,20 @@ public class RouteEndpointTests(WebApplicationFactory<Program> factory)
         var response = await client.PostAsJsonAsync("/route", body);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("application/problem+json", response.Content.Headers.ContentType?.ToString());
+    }
+
+    [Fact]
+    public async Task Post_Route_MalformedJsonBody_Returns400ProblemJson()
+    {
+        var client = factory.CreateClient();
+
+        // Binding-layer failure (invalid JSON) — must share the same problem+json
+        // shape as the domain guard, so the web client can rely on one 400 contract.
+        var content = new StringContent("{ this is not json", Encoding.UTF8, "application/json");
+        var response = await client.PostAsync("/route", content);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("application/problem+json", response.Content.Headers.ContentType?.ToString());
     }
 }

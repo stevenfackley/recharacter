@@ -11,6 +11,18 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 var app = builder.Build();
 
+// Make ALL error responses RFC 7807 problem+json — including model-binding failures
+// (malformed JSON, missing required field, unparseable date/enum), which otherwise
+// never reach the handler below. The exception middleware defaults everything to 500,
+// so BadHttpRequestException (the binding failure) must be mapped back to its own 400.
+app.UseExceptionHandler(new ExceptionHandlerOptions
+{
+    StatusCodeSelector = ex => ex is BadHttpRequestException bad
+        ? bad.StatusCode
+        : StatusCodes.Status500InternalServerError,
+});
+app.UseStatusCodePages();
+
 app.MapPost("/route", (DischargeFacts facts, DischargeRouter router) =>
 {
     try
