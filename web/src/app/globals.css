@@ -211,14 +211,56 @@ input[type="checkbox"] {
   accent-color: var(--file-blue);
 }
 
-input[type="file"] {
-  border-style: dashed;
-  padding: 0.9rem 0.7rem;
-  max-width: 28rem;
-  /* Keep the native picker clickable above any decorative/floating layers. */
-  position: relative;
-  z-index: 1;
+/* ---------- Upload control (label-driven picker) ---------- */
+
+.upload-field {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.upload-trigger {
+  display: inline-block;
+  width: auto;
+  max-width: none;
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--file-blue);
+  background: var(--surface);
+  border: 1px dashed var(--file-blue);
+  border-radius: 3px;
+  padding: 0.55rem 1.1rem;
   cursor: pointer;
+}
+
+.upload-trigger:hover {
+  background: rgba(43, 76, 126, 0.08);
+}
+
+/* Visually hidden but present, focusable, and form-submittable. */
+.upload-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.upload-input:focus-visible + .upload-name,
+.upload-input:focus-visible ~ .upload-name {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.upload-name {
+  font-family: var(--font-mono), "IBM Plex Mono", monospace;
+  font-size: 0.8rem;
+  color: var(--ledger);
 }
 
 textarea {

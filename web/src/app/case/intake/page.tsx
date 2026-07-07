@@ -1,6 +1,7 @@
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts, BRANCHES, CHARACTERIZATIONS } from '@/lib/facts'
 import { uploadAndExtract, confirmFacts } from './actions'
+import { UploadField } from './upload-field'
 
 export default async function IntakePage({
   searchParams,
@@ -38,7 +39,7 @@ export default async function IntakePage({
       <section>
         <h2>Upload your DD-214 (or similar separation document)</h2>
         <form action={uploadAndExtract}>
-          <input name="document" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" required />
+          <UploadField />
           <button type="submit">Upload and read</button>
         </form>
         <p>PDF or photo, 15 MB max. Stored privately; only you can access it.</p>
