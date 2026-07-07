@@ -76,7 +76,12 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             set -e
+            # GHCR images are private; the workflow's own GITHUB_TOKEN has read
+            # access to repo-linked packages, so each deploy logs in fresh — the
+            # box never needs a long-lived PAT.
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             cd ~/recharacter
             docker compose pull
             docker compose up -d
             docker image prune -f
+            docker logout ghcr.io
