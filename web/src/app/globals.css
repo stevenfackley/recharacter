@@ -215,6 +215,10 @@ input[type="file"] {
   border-style: dashed;
   padding: 0.9rem 0.7rem;
   max-width: 28rem;
+  /* Keep the native picker clickable above any decorative/floating layers. */
+  position: relative;
+  z-index: 1;
+  cursor: pointer;
 }
 
 textarea {
