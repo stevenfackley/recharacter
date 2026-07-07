@@ -9,6 +9,10 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.resolve(__dirname),
   },
+  // The floating dev-tools button is a fixed overlay that sits ON TOP of page
+  // content and can intercept clicks (it was eating the intake file-input's
+  // click). Dev-only UI; disabling it has zero production impact.
+  devIndicators: false,
   // Server actions default to a 1 MB body limit, which silently breaks the
   // document-upload flow for real DD-214 scans (typically 2-10 MB). 16 MB =
   // the 15 MB app-level cap plus multipart overhead; the action still enforces
