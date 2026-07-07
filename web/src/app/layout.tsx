@@ -26,6 +26,7 @@ const monoFont = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://recharacter.us"),
   title: {
     default: "ReCharacter",
     template: "%s — ReCharacter",
