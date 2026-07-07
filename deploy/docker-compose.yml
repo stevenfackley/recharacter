@@ -1,0 +1,29 @@
+# Production stack for recharacter.us — runs on Qavren-Web-Server (rootless
+# docker). NO published ports: ingress is exclusively the Cloudflare Tunnel
+# (cloudflared dials out), so the box needs no open inbound HTTP at all.
+# Tunnel public hostname routes: recharacter.us -> http://web:3000
+
+name: recharacter
+
+services:
+  web:
+    image: ghcr.io/stevenfackley/recharacter-web:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ROUTING_API_URL: http://routing:8080
+    depends_on:
+      - routing
+
+  routing:
+    image: ghcr.io/stevenfackley/recharacter-routing:latest
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - web

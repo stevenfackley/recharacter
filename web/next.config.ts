@@ -3,6 +3,9 @@ import path from "node:path";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  // Lean production image: next build emits .next/standalone (self-contained
+  // server.js + pruned node_modules) consumed by web/Dockerfile.
+  output: "standalone",
   // Pin the workspace root: a stray package-lock.json in the user's home
   // directory (outside this repo) otherwise makes Turbopack's root
   // inference ambiguous and prints a warning on every build.
