@@ -1,0 +1,13 @@
+-- Service-role table privileges, declared explicitly. The CI-vs-local lesson
+-- (docs/development.md, migrations section) applies to service_role too:
+-- Supabase's schema default privileges normally grant it full access, but the
+-- defaults vary by CLI/image version — CI (latest image) came up WITHOUT them,
+-- so service-role table reads failed with "permission denied" while local
+-- worked. BYPASSRLS skips row policies, not table privileges; Postgres checks
+-- GRANTs first. The only production service-role caller is account deletion
+-- (GoTrue admin API + FK cascades — no direct table DML), but tests verify
+-- cascade results by reading tables as service_role.
+--
+-- Future migrations that create tables must grant service_role alongside
+-- authenticated/anon.
+grant select, insert, update, delete on all tables in schema public to service_role;

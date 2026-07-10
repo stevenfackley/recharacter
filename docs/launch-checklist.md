@@ -10,7 +10,7 @@ Everything between code-complete (all 8 roadmap plans merged) and public launch.
 
 ## 2. Product gaps accepted at MVP (decide: fix now or ship without)
 
-- [ ] One-click data delete/export (`docs/legal-posture.md` promises it; not yet built).
+- [x] One-click data delete/export (`docs/legal-posture.md` promises it) — shipped: Settings → Your data (`/settings/data`); export is RLS-scoped JSON, deletion sweeps storage then cascades via `auth.admin.deleteUser`. **Deploy note: production needs `SUPABASE_SERVICE_ROLE_KEY` in the box's `.env` (see `deploy/env.example`) or deletion fails closed.**
 - [ ] Requested-characterization field in intake (worksheet currently renders bracketed guidance).
 - [ ] Document list/delete UI for uploaded records (bucket + policies exist; no UI).
 - [ ] `source` provenance loss on confirm (`confirmFacts` always writes `manual`).

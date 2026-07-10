@@ -29,10 +29,11 @@ export default function PrivacyPage() {
         We do not sell your data, train models on your story, or share your
         records with boards, the VA, or anyone else. Filing is yours alone.
       </p>
-      <h2>Deletion</h2>
+      <h2>Deletion and export</h2>
       <p>
-        Delete your account and your records go with it. (One-click export and
-        deletion controls are part of the launch checklist.)
+        Delete your account and your records go with it — permanently, from
+        every table and file we hold. You can also download everything as a
+        single file first. Both controls live under Your data in settings.
       </p>
     </main>
   );
