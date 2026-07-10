@@ -65,7 +65,9 @@ export async function generateStatement(formData: FormData) {
     redirect('/case/draft?error=' + encodeURIComponent(
       result.status === 503
         ? 'Drafting needs an AI key — you can also write your statement directly below'
-        : 'Could not generate a statement right now — try again shortly',
+        : result.byokKeyRejected
+          ? 'Your AI provider rejected your API key — check it in AI settings, then generate again'
+          : 'Could not generate a statement right now — try again shortly',
     ))
   }
 
@@ -120,7 +122,9 @@ export async function generateCoverLetter(formData: FormData) {
     redirect('/case/draft?error=' + encodeURIComponent(
       result.status === 503
         ? 'Drafting needs an AI key — you can write your cover letter directly instead'
-        : 'Could not generate a cover letter right now — try again shortly',
+        : result.byokKeyRejected
+          ? 'Your AI provider rejected your API key — check it in AI settings, then generate again'
+          : 'Could not generate a cover letter right now — try again shortly',
     ))
   }
 

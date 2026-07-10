@@ -30,11 +30,17 @@ vi.mock('@/lib/cases', () => ({
   getOrCreateCase: async () => ({ id: 'case-1', owner_id: 'user-1' }),
 }))
 
+const mockSaveNexusAnswer = vi.fn()
 vi.mock('@/lib/nexus', () => ({
   KURTA_QUESTIONS: [
     { key: 'q1', column: 'q1_condition', prompt: 'What condition?', explainer: '...' },
   ],
-  saveNexusAnswer: vi.fn(),
+  saveNexusAnswer: (...args: unknown[]) => mockSaveNexusAnswer(...args),
+}))
+
+const refreshSpy = vi.fn()
+vi.mock('next/cache', () => ({
+  refresh: () => refreshSpy(),
 }))
 
 beforeEach(() => {
@@ -47,6 +53,40 @@ function formWith(text: string) {
   fd.set('text', text)
   return fd
 }
+
+describe('saveAnswer — state-returning save (no redirect)', () => {
+  test('saves the answer, refreshes, and reports saved without redirecting', async () => {
+    const { saveAnswer } = await import('./actions')
+
+    const result = await saveAnswer({ saved: false, error: null }, formWith('what happened to me'))
+    expect(result).toEqual({ saved: true, error: null })
+    expect(mockSaveNexusAnswer).toHaveBeenCalledWith('case-1', 'q1_condition', 'what happened to me')
+    expect(refreshSpy).toHaveBeenCalled()
+    // The old redirect-based save is exactly what discarded unsaved text in the
+    // other three textareas (issue #9) — a redirect here is a regression.
+    expect(redirectSpy).not.toHaveBeenCalled()
+  })
+
+  test('rejects an over-long answer as inline state, not a redirect', async () => {
+    const { saveAnswer } = await import('./actions')
+
+    const result = await saveAnswer({ saved: false, error: null }, formWith('x'.repeat(6001)))
+    expect(result).toEqual({ saved: false, error: 'Answer too long (6000 characters max)' })
+    expect(mockSaveNexusAnswer).not.toHaveBeenCalled()
+    expect(redirectSpy).not.toHaveBeenCalled()
+  })
+
+  test('an unknown question key saves nothing', async () => {
+    const { saveAnswer } = await import('./actions')
+
+    const fd = new FormData()
+    fd.set('questionKey', 'not-a-question')
+    fd.set('text', 'anything')
+    const result = await saveAnswer({ saved: false, error: null }, fd)
+    expect(result.saved).toBe(false)
+    expect(mockSaveNexusAnswer).not.toHaveBeenCalled()
+  })
+})
 
 describe('shapeAnswer — premium gate transport', () => {
   test('redirects to /case/upgrade on a 402 from the gateway', async () => {

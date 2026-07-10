@@ -1,5 +1,6 @@
 'use server'
 
+import { refresh } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { executeAiTask } from '@/lib/ai/gateway'
@@ -11,24 +12,33 @@ import { KURTA_QUESTIONS, saveNexusAnswer } from '@/lib/nexus'
 // generation with a misleading "try again" error.
 const MAX_ANSWER_LENGTH = 6000
 
-/** The human-owned save path: whatever text is in the textarea when Save is pressed. */
-export async function saveAnswer(formData: FormData) {
+export type SaveState = { saved: boolean; error: string | null }
+
+/**
+ * The human-owned save path: whatever text is in the textarea when Save is
+ * pressed. Returns state rendered inline by the question component rather than
+ * redirecting — a full-page transition here discards unsaved text in the other
+ * three textareas (issue #9). refresh() re-renders the server components (the
+ * answered-count) while client textarea state survives.
+ */
+export async function saveAnswer(_prev: SaveState, formData: FormData): Promise<SaveState> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
   const key = String(formData.get('questionKey') ?? '')
   const question = KURTA_QUESTIONS.find((q) => q.key === key)
-  if (!question) redirect('/case/nexus')
+  if (!question) return { saved: false, error: 'Unknown question' }
 
   const text = String(formData.get('text') ?? '')
   if (text.length > MAX_ANSWER_LENGTH) {
-    redirect('/case/nexus?error=' + encodeURIComponent('Answer too long (6000 characters max)'))
+    return { saved: false, error: 'Answer too long (6000 characters max)' }
   }
 
   const c = await getOrCreateCase()
   await saveNexusAnswer(c.id, question.column, text)
-  redirect('/case/nexus?saved=' + encodeURIComponent(question.key))
+  refresh()
+  return { saved: true, error: null }
 }
 
 export type ShapeState = { shapedAnswer: string | null; gaps: string | null }

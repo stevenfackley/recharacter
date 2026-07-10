@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { getOrCreateCase } from '@/lib/cases'
 import { getCaseContext } from '@/lib/context'
@@ -6,8 +7,11 @@ import {
   recommendEvidence, scoreCase,
   type EvidenceStatusMap, type EvidenceType,
 } from '@/lib/evidence'
+import { evidenceStatusLabel } from '@/lib/labels'
 import { saveContext, setItemStatus } from './actions'
 import { CoachingSection } from './coaching'
+
+export const metadata: Metadata = { title: 'Your evidence checklist' }
 
 const CONDITION_OPTIONS = [
   { value: 'ptsd', label: 'PTSD' },
@@ -98,7 +102,9 @@ export default async function EvidencePage({
                 <label>
                   Status
                   <select name="status" defaultValue={status}>
-                    {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s}>{evidenceStatusLabel(s)}</option>
+                    ))}
                   </select>
                 </label>
                 <button type="submit">Save</button>

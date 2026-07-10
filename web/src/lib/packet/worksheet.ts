@@ -1,4 +1,5 @@
 import type { PacketInput } from './sections'
+import { BRANCH_LABELS, CHARACTERIZATION_LABELS } from '@/lib/labels'
 
 /**
  * Item-number row tables for the two official forms. Every string here is
@@ -13,25 +14,6 @@ import type { PacketInput } from './sections'
  */
 
 type WorksheetRow = { item: string; value: string }
-
-/** Display labels — the words printed on the official forms, not our enum names. */
-const BRANCH_LABELS: Record<string, string> = {
-  Army: 'Army',
-  Navy: 'Navy',
-  MarineCorps: 'Marine Corps',
-  AirForce: 'Air Force',
-  SpaceForce: 'Space Force',
-  CoastGuard: 'Coast Guard',
-}
-
-const CHARACTERIZATION_LABELS: Record<string, string> = {
-  Honorable: 'Honorable',
-  GeneralUnderHonorable: 'General (Under Honorable Conditions)',
-  OtherThanHonorable: 'Under Other Than Honorable Conditions',
-  BadConductDischarge: 'Bad Conduct',
-  DishonorableDischarge: 'Dishonorable',
-  Uncharacterized: 'Uncharacterized (Entry-Level Separation)',
-}
 
 const REQUESTED_CHARACTERIZATION_GUIDANCE =
   '[The characterization you are requesting — most mental-health petitions request Honorable ' +

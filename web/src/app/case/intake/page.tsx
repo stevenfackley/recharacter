@@ -1,7 +1,11 @@
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts, BRANCHES, CHARACTERIZATIONS } from '@/lib/facts'
+import type { Metadata } from 'next'
+import { branchLabel, characterizationLabel } from '@/lib/labels'
 import { uploadAndExtract, confirmFacts } from './actions'
 import { UploadField } from './upload-field'
+
+export const metadata: Metadata = { title: 'Your service facts' }
 
 export default async function IntakePage({
   searchParams,
@@ -52,7 +56,7 @@ export default async function IntakePage({
             Branch
             <select name="branch" defaultValue={prefill.branch} required>
               <option value="" disabled>Select…</option>
-              {BRANCHES.map((b) => <option key={b} value={b}>{b}</option>)}
+              {BRANCHES.map((b) => <option key={b} value={b}>{branchLabel(b)}</option>)}
             </select>
           </label>
           <label>
@@ -63,7 +67,9 @@ export default async function IntakePage({
             Characterization of service
             <select name="characterization" defaultValue={prefill.characterization} required>
               <option value="" disabled>Select…</option>
-              {CHARACTERIZATIONS.map((ch) => <option key={ch} value={ch}>{ch}</option>)}
+              {CHARACTERIZATIONS.map((ch) => (
+                <option key={ch} value={ch}>{characterizationLabel(ch)}</option>
+              ))}
             </select>
           </label>
           <label>

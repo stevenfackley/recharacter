@@ -1,15 +1,13 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
 import { getNexusAnswers, KURTA_QUESTIONS, answersComplete } from '@/lib/nexus'
 import { NexusQuestion } from './question'
 
-export default async function NexusPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | undefined>>
-}) {
-  const params = await searchParams
+export const metadata: Metadata = { title: 'The four questions' }
+
+export default async function NexusPage() {
   const c = await getOrCreateCase()
   const facts = await getServiceFacts(c.id)
   const answers = await getNexusAnswers(c.id)
@@ -24,8 +22,6 @@ export default async function NexusPage({
   return (
     <main>
       <h1>The four questions</h1>
-      {params.error && <p role="alert">{params.error}</p>}
-      {params.saved && <p role="status">Saved.</p>}
       {!facts?.confirmed && (
         <p role="alert">
           Confirm your service facts before generating a draft.{' '}

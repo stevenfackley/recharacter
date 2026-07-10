@@ -1,5 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { saveByokKey, removeByokKey } from './actions'
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = { title: 'AI settings' }
 
 export default async function AiSettingsPage() {
   const supabase = await createClient()
