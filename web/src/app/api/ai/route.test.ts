@@ -113,6 +113,47 @@ describe('POST /api/ai/[task]', () => {
   })
 })
 
+describe('POST /api/ai/[task] — provider auth failures', () => {
+  function mockByokCredential() {
+    // A real encrypted credential so resolveApiKey decrypts it and marks byok: true.
+    return import('@/lib/ai/crypto').then(({ encryptSecret }) => {
+      const encrypted = encryptSecret('sk-ant-bad-user-key', process.env.AI_KEY_ENCRYPTION_SECRET!)
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'ai_credentials') {
+          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { encrypted_key: encrypted } }) }) }) }
+        }
+        if (table === 'entitlements') {
+          return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }
+        }
+        return { insert: async () => ({ error: null }) }
+      })
+    })
+  }
+
+  test('BYOK + provider 401 → 502 that blames the key, not the weather', async () => {
+    await mockByokCredential()
+    mockCreate.mockRejectedValue(Object.assign(new Error('invalid x-api-key'), { status: 401 }))
+    const res = await callRoute('ping', { message: 'hi' })
+    expect(res.status).toBe(502)
+    expect((await res.json()).error).toContain('check it in AI settings')
+  })
+
+  test('managed key + provider 401 stays a generic provider error', async () => {
+    mockCreate.mockRejectedValue(Object.assign(new Error('invalid x-api-key'), { status: 401 }))
+    const res = await callRoute('ping', { message: 'hi' })
+    expect(res.status).toBe(502)
+    expect((await res.json()).error).not.toContain('AI settings')
+  })
+
+  test('BYOK + a transient provider failure (529) is NOT blamed on the key', async () => {
+    await mockByokCredential()
+    mockCreate.mockRejectedValue(Object.assign(new Error('overloaded'), { status: 529 }))
+    const res = await callRoute('ping', { message: 'hi' })
+    expect(res.status).toBe(502)
+    expect((await res.json()).error).not.toContain('AI settings')
+  })
+})
+
 describe('POST /api/ai/[task] — premium task gating (402)', () => {
   const shapeBody = {
     questionKey: 'q1',

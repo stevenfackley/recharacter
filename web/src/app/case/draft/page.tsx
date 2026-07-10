@@ -5,6 +5,9 @@ import { getCaseContext } from '@/lib/context'
 import { getNexusAnswers, answersComplete } from '@/lib/nexus'
 import { getDraft } from '@/lib/drafts'
 import { saveDraft, generateStatement, generateCoverLetter } from './actions'
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = { title: 'Your drafts' }
 
 export default async function DraftPage({
   searchParams,

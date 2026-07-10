@@ -6,7 +6,17 @@ import { isEntitled } from '@/lib/billing'
 
 export type AiTaskResult =
   | { ok: true; data: unknown }
-  | { ok: false; status: 400 | 402 | 404 | 422 | 502 | 503; error: string }
+  | {
+      ok: false
+      status: 400 | 402 | 404 | 422 | 502 | 503
+      error: string
+      /**
+       * True when the provider rejected the user's OWN key (BYOK + 401/403).
+       * Callers must not tell the veteran to "try again" — a retry can never
+       * succeed until the key is fixed in AI settings (issue #9).
+       */
+      byokKeyRejected?: boolean
+    }
 
 /**
  * The single execution path for every AI call (used by the API route AND by
@@ -66,6 +76,19 @@ export async function executeAiTask(
     })
   } catch (err) {
     console.error(`ai task ${task.name} provider error`, err)
+    // Anthropic SDK errors carry the provider's HTTP status. 401/403 on a BYOK
+    // key means the KEY is bad, not the weather — a permanent failure the
+    // veteran can only fix in AI settings. (A managed-key auth failure is an
+    // ops problem; the generic message is right for that.)
+    const providerStatus = (err as { status?: number }).status
+    if (key.byok && (providerStatus === 401 || providerStatus === 403)) {
+      return {
+        ok: false,
+        status: 502,
+        error: 'The AI provider rejected your API key — check it in AI settings',
+        byokKeyRejected: true,
+      }
+    }
     return { ok: false, status: 502, error: 'AI provider error' }
   }
 

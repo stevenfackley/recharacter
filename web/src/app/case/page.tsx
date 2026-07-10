@@ -1,8 +1,12 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
 import { routeDischarge, type RoutingResult } from '@/lib/routing'
 import { getNexusAnswers, KURTA_QUESTIONS, answersComplete } from '@/lib/nexus'
+import { branchLabel, characterizationLabel } from '@/lib/labels'
+
+export const metadata: Metadata = { title: 'Your case' }
 
 const FLAG_TEXT: Record<string, string> = {
   PastDrbWindow: 'The 15-year Discharge Review Board window has closed for this discharge.',
@@ -50,7 +54,8 @@ export default async function CasePage() {
         <h2>1. Service facts</h2>
         {facts?.confirmed ? (
           <p>
-            {facts.branch}, discharged {facts.dischargeDate} ({facts.characterization}).{' '}
+            {branchLabel(facts.branch)}, discharged {facts.dischargeDate} (
+            {characterizationLabel(facts.characterization)}).{' '}
             <Link href="/case/intake">Edit</Link>
           </p>
         ) : (

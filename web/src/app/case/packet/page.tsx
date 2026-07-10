@@ -4,6 +4,9 @@ import { getServiceFacts } from '@/lib/facts'
 import { getDraft } from '@/lib/drafts'
 import { isEntitled } from '@/lib/billing'
 import { createClient } from '@/lib/supabase/server'
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = { title: 'Your filing packet' }
 
 export default async function PacketPage() {
   const c = await getOrCreateCase()

@@ -1,6 +1,9 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { startCheckout, restorePurchaseAction, verifySession } from './actions'
+import type { Metadata } from 'next'
+
+export const metadata: Metadata = { title: 'Unlock your case' }
 
 /**
  * The freemium boundary, explained and unlocked (design spec §10). Two paths to the

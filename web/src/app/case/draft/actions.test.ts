@@ -95,4 +95,27 @@ describe('drafting actions — premium gate transport', () => {
     await expect(generateStatement(new FormData())).rejects.toThrow()
     expect(redirectSpy).toHaveBeenCalledWith(expect.stringContaining('/case/draft?error='))
   })
+
+  test('a rejected BYOK key names AI settings instead of suggesting a retry', async () => {
+    mockExecute.mockResolvedValue({
+      ok: false, status: 502, error: 'The AI provider rejected your API key', byokKeyRejected: true,
+    })
+    const { generateStatement } = await import('./actions')
+
+    await expect(generateStatement(new FormData())).rejects.toThrow()
+    const target = decodeURIComponent(redirectSpy.mock.calls[0][0] as string)
+    expect(target).toContain('AI settings')
+    // "try again" is a lie for a bad key — a retry can never succeed.
+    expect(target).not.toContain('try again')
+  })
+
+  test('a transient 502 without the BYOK flag keeps the try-again message', async () => {
+    mockExecute.mockResolvedValue({ ok: false, status: 502, error: 'AI provider error' })
+    const { generateStatement } = await import('./actions')
+
+    await expect(generateStatement(new FormData())).rejects.toThrow()
+    const target = decodeURIComponent(redirectSpy.mock.calls[0][0] as string)
+    expect(target).toContain('try again shortly')
+    expect(target).not.toContain('AI settings')
+  })
 })

@@ -48,7 +48,9 @@ export async function uploadAndExtract(formData: FormData) {
   })
   if (!result.ok) {
     redirect('/case/intake?error=' + encodeURIComponent(
-      'Could not read the document automatically — enter your facts below',
+      result.byokKeyRejected
+        ? 'Your AI provider rejected your API key — check it in AI settings, or enter your facts below'
+        : 'Could not read the document automatically — enter your facts below',
     ))
   }
 
