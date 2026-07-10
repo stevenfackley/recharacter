@@ -34,7 +34,7 @@ npm run dev                          # http://localhost:3000
 |-----|--------|---------------------|
 | `NEXT_PUBLIC_SUPABASE_URL` | `API_URL` | yes |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `ANON_KEY` (the JWT, not the newer `sb_publishable_` key) | yes |
-| `SUPABASE_SERVICE_ROLE_KEY` | `SERVICE_ROLE_KEY` | **no — tests only**, used to provision test users |
+| `SUPABASE_SERVICE_ROLE_KEY` | `SERVICE_ROLE_KEY` | **no — server only**: tests (user provisioning) + account deletion (`auth.admin.deleteUser`) |
 | `ANTHROPIC_API_KEY` | your key (Plan 03+) | no |
 | `AI_KEY_ENCRYPTION_SECRET` | `openssl rand -base64 32` (Plan 03+) | no |
 
@@ -63,7 +63,7 @@ Add a numbered file under `supabase/migrations/` (e.g. `0003_ai.sql`), then `sup
 - **Kong flake after `supabase db reset`:** the API gateway container occasionally comes up wedged (Node fetches fail with "socket other side closed" while `docker ps` says healthy). Fix: `docker restart supabase_kong_recharacter`, then rerun tests.
 - **`supabase db execute` doesn't exist** in CLI 2.90 — use `supabase db query "..."` for ad-hoc SQL.
 - **`supabase status` shows `sb_publishable_`/`sb_secret_` keys by default** — the app uses the legacy JWT keys; get them via `supabase status -o env` (`ANON_KEY` / `SERVICE_ROLE_KEY`).
-- **Next 16 deprecation warning:** the repo scaffolded on Next 16, which deprecates `middleware.ts` in favor of `proxy.ts`. The current `web/src/middleware.ts` works (build shows `ƒ Proxy (Middleware)`) but warns; a rename is queued.
+- **Next 16 middleware naming:** Next 16 deprecates `middleware.ts` in favor of `proxy.ts`; this repo already uses `web/src/proxy.ts` (build shows `ƒ Proxy (Middleware)`).
 - **Windows line endings:** a workspace hook auto-normalizes CRLF flips; if you see phantom whole-file diffs, that's what happened.
 - **Turbopack workspace-root warning:** silenced via `turbopack.root` in `web/next.config.ts` (a stray lockfile in the home directory confuses inference).
 

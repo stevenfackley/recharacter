@@ -136,6 +136,7 @@ export default async function CasePage() {
       <form action="/auth/signout" method="post">
         <button type="submit">Sign out</button>
       </form>
+      <p><Link href="/settings/data">Your data — export or delete everything</Link></p>
     </main>
   )
 }

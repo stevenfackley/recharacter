@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { saveByokKey, removeByokKey } from './actions'
 import type { Metadata } from 'next'
@@ -47,6 +48,8 @@ export default async function AiSettingsPage() {
         <h2>Usage</h2>
         <p>{totals.input.toLocaleString()} input / {totals.output.toLocaleString()} output tokens</p>
       </section>
+
+      <p><Link href="/settings/data">Your data — export or delete everything</Link></p>
     </main>
   )
 }
