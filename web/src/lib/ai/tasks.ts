@@ -217,7 +217,9 @@ const draft_statement: AiTask = {
     'characterization being petitioned; the four answers woven into a coherent narrative in ' +
     'their original order; a short closing that respectfully asks the board to apply liberal ' +
     'consideration to the mental-health evidence. RULES: the statement may contain ONLY facts ' +
-    'present in the inputs — never invent events, dates, names, diagnoses, or details; preserve ' +
+    'present in the inputs — never invent events, dates, names, diagnoses, or details; never ' +
+    'say evidence is included, enclosed, or attached unless the evidence list names at least ' +
+    'one item; preserve ' +
     'the veteran\'s voice and words wherever possible; plain language, no citations, no legal ' +
     'argument beyond the liberal-consideration request; do not address filing strategy. The ' +
     'veteran will review, edit, and own this draft.',
@@ -234,7 +236,10 @@ const draft_statement: AiTask = {
     const d = draftInput.parse(input)
     return (
       `Service facts: branch ${d.branch}; discharged ${d.dischargeDate}; characterization ${d.characterization}.\n` +
-      `Evidence being included: ${d.collectedEvidence.length ? d.collectedEvidence.join('; ') : 'listed separately'}.\n\n` +
+      // 'none yet', not 'listed separately': the fallback wording must not imply
+      // enclosures exist, or the draft asserts evidence the veteran doesn't have
+      // (caught by the 2026-07-11 draft-quality eval).
+      `Evidence being included: ${d.collectedEvidence.length ? d.collectedEvidence.join('; ') : 'none yet'}.\n\n` +
       `Answer 1 — the condition/experience:\n${d.answers.q1_condition}\n\n` +
       `Answer 2 — during service:\n${d.answers.q2_during_service}\n\n` +
       `Answer 3 — connection to the conduct (nexus):\n${d.answers.q3_mitigation}\n\n` +

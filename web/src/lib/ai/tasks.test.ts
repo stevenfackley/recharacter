@@ -119,6 +119,20 @@ describe('task registry', () => {
     })).toThrow()
   })
 
+  test('draft_statement with no collected evidence must not imply enclosures', () => {
+    // 'listed separately' made the model write "I have included evidence with
+    // this petition" for a veteran with nothing collected (2026-07-11 eval).
+    const draft = getTask('draft_statement')!
+    const prompt = draft.buildPrompt({
+      answers: { q1_condition: 'a', q2_during_service: 'b', q3_mitigation: 'c', q4_outweigh: 'd' },
+      branch: 'Army', characterization: 'OtherThanHonorable',
+      dischargeDate: '2011-06-14', collectedEvidence: [],
+    }) as string
+    expect(prompt).toContain('Evidence being included: none yet.')
+    expect(prompt).not.toContain('listed separately')
+    expect(draft.system).toContain('never say evidence is included, enclosed, or attached')
+  })
+
   test('exactly the premium trio is gated behind the freemium boundary', () => {
     // Pins against accidental gating/ungating: intake extraction (acquisition cost),
     // coaching_note, and ping stay free; the three AI-drafting surfaces are premium.
