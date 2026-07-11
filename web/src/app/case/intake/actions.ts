@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { executeAiTask } from '@/lib/ai/gateway'
 import { getOrCreateCase } from '@/lib/cases'
-import { serviceFactsSchema, saveServiceFacts } from '@/lib/facts'
+import { serviceFactsSchema, saveServiceFacts, confirmServiceFacts } from '@/lib/facts'
 
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
 const MAX_BYTES = 15 * 1024 * 1024
@@ -72,7 +72,7 @@ export async function uploadAndExtract(formData: FormData) {
   }
   const parsed = serviceFactsSchema.safeParse(candidate)
   if (parsed.success) {
-    await saveServiceFacts(c.id, parsed.data, { source: 'extracted', confirmed: false })
+    await saveServiceFacts(c.id, parsed.data, { source: 'extracted' })
     redirect('/case/intake?extracted=1')
   }
   redirect('/case/intake?partial=1')
@@ -95,6 +95,8 @@ export async function confirmFacts(formData: FormData) {
     redirect('/case/intake?error=' + encodeURIComponent('Check the highlighted fields'))
   }
 
-  await saveServiceFacts(c.id, parsed.data, { source: 'manual', confirmed: true })
+  // Provenance is derived inside the gate: confirming the extracted values
+  // untouched keeps source 'extracted'; any edit records 'manual'.
+  await confirmServiceFacts(c.id, parsed.data)
   redirect('/case')
 }

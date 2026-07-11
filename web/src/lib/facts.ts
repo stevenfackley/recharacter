@@ -23,17 +23,31 @@ export const serviceFactsSchema = z.object({
   wasGeneralCourtMartial: z.boolean(),
 })
 
-/**
- * The human-confirmation gate as a code invariant: EXTRACTED facts can never be
- * confirmed, no matter what a caller asks for. Only a manual (veteran-submitted)
- * save may confirm. Routing renders exclusively from confirmed facts, so this is
- * the line that keeps AI extraction out of the deadline-computation path.
- */
-export function resolveConfirmed(source: 'manual' | 'extracted', requested: boolean): boolean {
-  return source === 'extracted' ? false : requested
+export type ServiceFacts = z.infer<typeof serviceFactsSchema>
+
+/** Field-for-field equality on the four routed facts. */
+export function sameFacts(a: ServiceFacts, b: ServiceFacts): boolean {
+  return (
+    a.branch === b.branch &&
+    a.dischargeDate === b.dischargeDate &&
+    a.characterization === b.characterization &&
+    a.wasGeneralCourtMartial === b.wasGeneralCourtMartial
+  )
 }
 
-export type ServiceFacts = z.infer<typeof serviceFactsSchema>
+/**
+ * Provenance for a confirmation save. `source` records where the VALUES came
+ * from, not who vetted them: confirming the saved values untouched preserves
+ * their original source (an extraction the veteran vouched for is still an
+ * extraction), while editing any field — or having no saved row at all — means
+ * the veteran supplied the facts: 'manual'.
+ */
+export function resolveSource(
+  prior: (ServiceFacts & { source: 'manual' | 'extracted' }) | null,
+  submitted: ServiceFacts,
+): 'manual' | 'extracted' {
+  return prior !== null && sameFacts(prior, submitted) ? prior.source : 'manual'
+}
 
 export type ServiceFactsRow = ServiceFacts & {
   id: string
@@ -59,10 +73,11 @@ export async function getServiceFacts(caseId: string): Promise<ServiceFactsRow |
   }
 }
 
-export async function saveServiceFacts(
+async function upsertServiceFacts(
   caseId: string,
   facts: ServiceFacts,
-  opts: { source: 'manual' | 'extracted'; confirmed: boolean },
+  source: 'manual' | 'extracted',
+  confirmed: boolean,
 ): Promise<void> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -76,11 +91,36 @@ export async function saveServiceFacts(
       discharge_date: facts.dischargeDate,
       characterization: facts.characterization,
       was_general_court_martial: facts.wasGeneralCourtMartial,
-      source: opts.source,
-      confirmed: resolveConfirmed(opts.source, opts.confirmed),
+      source,
+      confirmed,
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'case_id' },
   )
   if (error) throw error
+}
+
+/**
+ * Unconfirmed save (extraction prefill). The human-confirmation gate as a code
+ * invariant: this writer CANNOT confirm — only confirmServiceFacts can, and it
+ * is called solely from the veteran's own review-form submission. Routing
+ * renders exclusively from confirmed facts, so this split is the line that
+ * keeps unreviewed AI extraction out of the deadline-computation path.
+ */
+export async function saveServiceFacts(
+  caseId: string,
+  facts: ServiceFacts,
+  opts: { source: 'manual' | 'extracted' },
+): Promise<void> {
+  await upsertServiceFacts(caseId, facts, opts.source, false)
+}
+
+/**
+ * The confirmation gate: the veteran reviewed these values and submitted them.
+ * Derives provenance itself (never trusts a caller-supplied label) so an
+ * untouched extraction stays 'extracted' while any edit becomes 'manual'.
+ */
+export async function confirmServiceFacts(caseId: string, facts: ServiceFacts): Promise<void> {
+  const prior = await getServiceFacts(caseId)
+  await upsertServiceFacts(caseId, facts, resolveSource(prior, facts), true)
 }
