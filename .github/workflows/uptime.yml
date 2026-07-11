@@ -1,0 +1,28 @@
+name: Uptime
+
+# Black-box probe of the public site every 15 minutes. A failing run emails the
+# repo owner (default GitHub notification) — that's the whole alerting channel
+# until real monitoring lands (launch-checklist §5). The routing API is
+# tunnel-internal and has no public surface to probe; the landing and login
+# pages together prove Cloudflare -> tunnel -> web container end to end.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  probe:
+    name: Probe recharacter.us
+    runs-on: ubuntu-latest
+    steps:
+      - name: Landing page
+        run: |
+          body=$(curl -sS --fail --max-time 20 --retry 3 --retry-delay 10 --retry-all-errors https://recharacter.us/)
+          # A 200 from Cloudflare isn't proof the app answered — require real content.
+          echo "$body" | grep -qi "recharacter" || { echo "landing page 200 but content missing"; exit 1; }
+      - name: Login page
+        run: |
+          curl -sS --fail --max-time 20 --retry 3 --retry-delay 10 --retry-all-errors -o /dev/null https://recharacter.us/login
