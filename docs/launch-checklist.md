@@ -9,7 +9,7 @@ Everything between code-complete (all 8 roadmap plans merged) and public launch.
 - [x] Live end-to-end smoke test — done 2026-07-06 with a **synthetic** DD-214 (issue #9; findings fixed in PR #16). Deterministic flow verified and real-model AI verified: extraction read the synthetic DD-214 4-for-4, `shape_nexus_answer` preserved voice.
 - [ ] **HUMAN — Founder's real-DD-214 run + statement-quality judgment.** Steve's own case is the first real test case by design; the 07-06 pass used synthetic records. Walk the full path on production: upload → extraction quality → confirm → routing correctness → evidence → nexus ("Help me phrase this") → statement generation quality → packet PDF.
 - [ ] **HUMAN — Attorney review.** Work `docs/legal-review-package.md` §1–§9 to sign-off. Hard launch gate per `docs/legal-posture.md`.
-- [ ] Draft-quality evaluation pass: generate statements from several synthetic fact patterns (each branch, MST case, GCM case) and read them against the prompts' rules (no invented facts, no advice). Tune prompts if needed — they're all in one file (`web/src/lib/ai/tasks.ts`).
+- [x] Draft-quality evaluation pass — done 2026-07-11 (`docs/eval/2026-07-11-draft-quality.md`): 5 synthetic statements (Army/Navy/USMC/AF/SF incl. MST + GCM patterns) + 2 cover letters against the live model, each adversarially judged. 6/7 passed; the one failure (empty evidence list → "I have included evidence with this petition") is fixed and retested in PR #21.
 
 ## 2. Product gaps accepted at MVP (decide: fix now or ship without)
 
