@@ -17,7 +17,7 @@ Everything between code-complete (all 8 roadmap plans merged) and public launch.
 - [ ] **Verify `SUPABASE_SERVICE_ROLE_KEY` is set in the prod box `.env`** (see `deploy/env.example`) — account deletion fails closed without it. Flagged at PR #17 merge; not yet confirmed on the box.
 - [ ] Requested-characterization field in intake (worksheet currently renders bracketed guidance).
 - [ ] Document list/delete UI for uploaded records (bucket + policies exist; no UI).
-- [ ] `source` provenance loss on confirm (`confirmFacts` always writes `manual`).
+- [x] `source` provenance loss on confirm (`confirmFacts` always writes `manual`) — fixed 2026-07-11 (PR #20): confirming untouched extracted values keeps `source: 'extracted'` (still `confirmed: true`); any edit or first manual entry records `manual`. Gate restructured: `saveServiceFacts` writes only unconfirmed rows, `confirmServiceFacts` is the sole confirmer and derives provenance itself.
 - [ ] Draft-page UX without an AI key: veteran can paste/write a statement manually — verify the flow reads acceptably.
 
 ## 3. Infrastructure — live at recharacter.us
