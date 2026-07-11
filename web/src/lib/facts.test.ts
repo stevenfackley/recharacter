@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
-import { resolveConfirmed, serviceFactsSchema } from '@/lib/facts'
+import { resolveSource, serviceFactsSchema, type ServiceFacts } from '@/lib/facts'
 
-const valid = {
+const valid: ServiceFacts = {
   branch: 'MarineCorps',
   dischargeDate: '2024-06-01',
   characterization: 'OtherThanHonorable',
@@ -32,14 +32,25 @@ describe('serviceFactsSchema', () => {
   })
 })
 
-describe('resolveConfirmed (the human-confirmation gate)', () => {
-  test('extracted facts can NEVER be confirmed, even if requested', () => {
-    expect(resolveConfirmed('extracted', true)).toBe(false)
-    expect(resolveConfirmed('extracted', false)).toBe(false)
+describe('resolveSource (provenance on confirm)', () => {
+  const extracted = { ...valid, source: 'extracted' as const }
+
+  test('confirming extracted values untouched preserves extracted provenance', () => {
+    expect(resolveSource(extracted, valid)).toBe('extracted')
   })
 
-  test('manual facts confirm only when the veteran submits them', () => {
-    expect(resolveConfirmed('manual', true)).toBe(true)
-    expect(resolveConfirmed('manual', false)).toBe(false)
+  test('editing ANY field makes the fact set manual', () => {
+    expect(resolveSource(extracted, { ...valid, branch: 'Navy' })).toBe('manual')
+    expect(resolveSource(extracted, { ...valid, dischargeDate: '2024-06-02' })).toBe('manual')
+    expect(resolveSource(extracted, { ...valid, characterization: 'Honorable' })).toBe('manual')
+    expect(resolveSource(extracted, { ...valid, wasGeneralCourtMartial: true })).toBe('manual')
+  })
+
+  test('no saved row (first manual entry) is manual', () => {
+    expect(resolveSource(null, valid)).toBe('manual')
+  })
+
+  test('re-confirming an unchanged manual row stays manual', () => {
+    expect(resolveSource({ ...valid, source: 'manual' }, valid)).toBe('manual')
   })
 })
