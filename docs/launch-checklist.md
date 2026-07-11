@@ -40,9 +40,9 @@ Everything between code-complete (all 8 roadmap plans merged) and public launch.
 ## 5. Ops & safety
 
 - [ ] Error tracking (Sentry is already in the workspace toolbox) + uptime checks on web, routing API, Supabase.
-- [ ] Managed-tier cost guardrails: `ai_usage` is metering — add an alert threshold (runaway extraction/drafting spend) before public traffic.
+- [x] Managed-tier cost guardrails — shipped 2026-07-11: hard per-user daily token cap on non-BYOK calls at the gateway (`AI_MANAGED_DAILY_TOKEN_CAP`, default 2M/UTC day). Aggregate spend *alerting* on `ai_usage` is still open (fold into the Sentry/uptime item).
 - [ ] Backups/retention: Supabase PITR settings; the retention policy the privacy copy promises.
-- [ ] Rate limiting on `/api/ai/*` (currently nothing beyond auth + entitlement and Cloudflare proxy defaults — a hostile authed user could burn managed tokens on extraction, which is free-tier).
+- [x] Rate limiting on `/api/ai/*` — shipped 2026-07-11: per-user sliding window in `executeAiTask` (`AI_RATE_LIMIT_PER_MINUTE`, default 10/min) — covers the API route AND server actions, BYOK included.
 
 ## 6. Content
 

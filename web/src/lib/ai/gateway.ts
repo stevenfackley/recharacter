@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getTask } from '@/lib/ai/tasks'
+import { checkAiLimits } from '@/lib/ai/limits'
 import { resolveApiKey, createAnthropicClient } from '@/lib/ai/provider'
 import { recordUsage } from '@/lib/ai/usage'
 import { isEntitled } from '@/lib/billing'
@@ -8,7 +9,7 @@ export type AiTaskResult =
   | { ok: true; data: unknown }
   | {
       ok: false
-      status: 400 | 402 | 404 | 422 | 502 | 503
+      status: 400 | 402 | 404 | 422 | 429 | 502 | 503
       error: string
       /**
        * True when the provider rejected the user's OWN key (BYOK + 401/403).
@@ -47,6 +48,12 @@ export async function executeAiTask(
 
   const { data: credential } = await supabase
     .from('ai_credentials').select('encrypted_key').eq('owner_id', userId).maybeSingle()
+
+  // Guardrails run before key decryption or any provider call. Credential
+  // presence is what decides BYOK (mirrors resolveApiKey), so the cap exemption
+  // can be judged without touching the key itself.
+  const limit = await checkAiLimits(supabase, userId, Boolean(credential?.encrypted_key))
+  if (!limit.allowed) return { ok: false, status: 429, error: limit.error }
 
   let key
   try {
