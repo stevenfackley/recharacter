@@ -14,7 +14,7 @@ Everything between code-complete (all 8 roadmap plans merged) and public launch.
 ## 2. Product gaps accepted at MVP (decide: fix now or ship without)
 
 - [x] One-click data delete/export (`docs/legal-posture.md` promises it) — shipped 2026-07-10 (PR #17, deployed): Settings → Your data (`/settings/data`); export is RLS-scoped JSON, deletion sweeps storage then cascades via `auth.admin.deleteUser`.
-- [ ] **Verify `SUPABASE_SERVICE_ROLE_KEY` is set in the prod box `.env`** (see `deploy/env.example`) — account deletion fails closed without it. Flagged at PR #17 merge; not yet confirmed on the box.
+- [ ] **`SUPABASE_SERVICE_ROLE_KEY` on the prod box** — verified MISSING 2026-07-11 (deletion failing closed in prod). Now deploy-managed: `deploy.yml` syncs it into the box `.env` from the `SUPABASE_SERVICE_ROLE_KEY` Actions secret on every deploy. **To close: set the repo secret** (`supabase projects api-keys --project-ref ldxgdceplsdycviroisd` → `gh secret set`), then any deploy fixes prod.
 - [ ] Requested-characterization field in intake (worksheet currently renders bracketed guidance).
 - [ ] Document list/delete UI for uploaded records (bucket + policies exist; no UI).
 - [x] `source` provenance loss on confirm (`confirmFacts` always writes `manual`) — fixed 2026-07-11 (PR #20): confirming untouched extracted values keeps `source: 'extracted'` (still `confirmed: true`); any edit or first manual entry records `manual`. Gate restructured: `saveServiceFacts` writes only unconfirmed rows, `confirmServiceFacts` is the sole confirmer and derives provenance itself.
