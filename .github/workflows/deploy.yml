@@ -81,6 +81,18 @@ jobs:
             # box never needs a long-lived PAT.
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             cd ~/recharacter
+            # Deploy owns the deploy-managed lines of the box .env: the
+            # service-role key lives in Actions secret custody and is synced
+            # here every deploy (hand-edited .env is how it went missing —
+            # found absent in prod 2026-07-11, deletion failing closed).
+            # Empty secret = leave .env untouched.
+            if [ -n "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" ]; then
+              if grep -q '^SUPABASE_SERVICE_ROLE_KEY=' .env 2>/dev/null; then
+                sed -i "s|^SUPABASE_SERVICE_ROLE_KEY=.*|SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}|" .env
+              else
+                printf '\nSUPABASE_SERVICE_ROLE_KEY=%s\n' "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> .env
+              fi
+            fi
             docker compose pull
             docker compose up -d
             docker image prune -f
