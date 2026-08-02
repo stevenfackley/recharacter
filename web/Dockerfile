@@ -3,12 +3,12 @@
 # NEXT_PUBLIC_* values here are harmless build placeholders; the real values
 # are injected as runtime env on the host.
 
-FROM node:22-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 
-FROM node:22-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY web/ ./
@@ -17,7 +17,7 @@ ENV NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321 \
     NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM node:22-alpine AS run
+FROM node:26-alpine AS run
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3000 \
