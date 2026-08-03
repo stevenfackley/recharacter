@@ -64,3 +64,35 @@ A before B (auth.users FKs must go before the schema moves). C/D after B. Bigges
 ## Interim note
 
 Until D ships, account deletion on recharacter.us requires `SUPABASE_SERVICE_ROLE_KEY` on the box (verified missing 2026-07-11; one-liner fix staged in the launch-checklist thread). Ship the key or accept broken deletion for the interim — Steve's call.
+
+## 2026-08-02 — Phase A's platform side now exists
+
+qavren-auth PR #83 provisions the `recharacter` realm: email/password only
+(no IdPs, deliberately — see the privacy note in the realm file),
+self-registration on, password reset on (net-new capability — the app has no
+reset flow on Supabase), clients `recharacter-web` (public PKCE),
+`recharacter-web-confidential` (first consumer of the auth-next confidential
+opt-in, qavren-auth #68 — justified by this plan's own "all server-side"
+recon), and `recharacter-admin-svc` (`manage-users` only, backs §D). Both
+client secrets are generated and staged in
+`D:\recharacter-credentials-vault-20260802\` with push commands in its
+README; the realm reaches prod on the next `-AllRealms` apply. Phase A app
+work can start any time after that.
+
+**§F recommendation (decision still Steve's): fresh provision + re-onboard.**
+Three facts from the 2026-08-02 repo recon make copy-mode pure cost here:
+founder-testing data only; Stripe not live, so `entitlements.owner_id` has no
+real payments to remap (the UUID→`sub` crosswalk problem evaporates if the
+cutover lands before Stripe does — after that it's permanent); and password
+hashes wouldn't survive any copy anyway (GoTrue bcrypt is exportable, but
+with a handful of founder accounts re-registering beats building the import
+path). Keep playbook §6's 7-day read-only retention either way.
+
+Two §B/§D reminders that earned their place (recon 2026-08-02):
+- `ai_usage` and `entitlements` are insert-only BY DESIGN — today the
+  `auth.users` FK cascade is the only thing that clears them on account
+  deletion. §D's rewrite must land in the same phase that drops the FKs or
+  the legal-posture one-click-delete promise breaks silently.
+- The eight `web/tests/*-rls.integration.test.ts` suites are the isolation
+  guarantee's only safety net after RLS dies. Port them before swapping any
+  query (§B as written).
