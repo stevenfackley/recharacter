@@ -1,12 +1,18 @@
 name: dependabot-auto-merge
 
-# Auto-approves and enables auto-merge on Dependabot PRs that are PATCH bumps
-# only. Minor/major bumps still require human review.
+# Enables auto-merge on Dependabot PRs that are PATCH bumps only. Minor/major
+# bumps still require human review.
 #
 # Requirements:
 #   * Repo Settings -> General -> "Allow auto-merge" must be ON.
 #   * Branch protection should require status checks - `--auto` only waits if
 #     there are required checks to wait for.
+#
+# No `gh pr review --approve` here: branch protection requires no approving
+# reviews, and the repo/org Actions setting "Allow GitHub Actions to create and
+# approve pull requests" is OFF, so the approve call hard-fails the job before
+# auto-merge is ever enabled (this is exactly how PR #39 stalled; same fix as
+# qavren-auth PR #74).
 
 on: pull_request_target
 
@@ -26,11 +32,10 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Approve and enable auto-merge for patch bumps
+      - name: Enable auto-merge for patch bumps
         if: ${{ steps.meta.outputs.update-type == 'version-update:semver-patch' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
-          gh pr review --approve "$PR_URL"
           gh pr merge --auto --squash "$PR_URL"
