@@ -79,6 +79,19 @@ client secrets are generated and staged in
 README; the realm reaches prod on the next `-AllRealms` apply. Phase A app
 work can start any time after that.
 
+## 2026-08-27 — Phases A–D and G built (PR pending)
+
+Execution plan: `docs/superpowers/plans/2026-08-27-recharacter-09-execution.md`.
+- **Auth (A):** Auth.js v5 via `@qavren/auth-next` against the `recharacter` Keycloak realm (public PKCE client `recharacter-web`); one `getSessionUser()` replaces 24 `auth.getUser()` sites; RP-initiated logout.
+- **Data (B):** Drizzle over the qavren-db `recharacter` schema; RLS replaced by the owner-scoping invariant (`owner_id` on every statement, `assertCaseOwned` on every case write), enforced by two-user integration suites against real Postgres 17 in CI.
+- **Storage (C):** `ObjectStore` interface (R2 prod, MinIO CI, memory unit tests) with the `{owner}/{case}/{uuid}-{name}` prefix rule enforced in code.
+- **Deletion (D):** fails closed before touching data if `recharacter-admin-svc` is unconfigured, then rows → R2 prefix → Keycloak user-delete.
+- **CI (G):** local-Supabase job replaced with Postgres 17 + MinIO service containers; deploy adds a `migrate` job ahead of `deploy` and drops the Supabase service-role-key sync.
+
+§F decision as implemented: **fresh provision, no data copy** — the founder-testing-only data in `ldxgdceplsdycviroisd` isn't worth the snapshot/rename/checksum ceremony; 7-day read-only window before deletion, per playbook §6.
+
+Remaining work is Steve-only, no code: R2 bucket/token, qavren-db password rotation, the Keycloak admin secret, box `.env` swap. Runbook: `docs/deploy.md` § Cutover runbook.
+
 **§F recommendation (decision still Steve's): fresh provision + re-onboard.**
 Three facts from the 2026-08-02 repo recon make copy-mode pure cost here:
 founder-testing data only; Stripe not live, so `entitlements.owner_id` has no
