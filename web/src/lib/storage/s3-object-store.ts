@@ -1,7 +1,12 @@
 import {
-  S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectsCommand, NoSuchKey,
+  S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectsCommand,
 } from '@aws-sdk/client-s3'
 import type { ObjectStore } from './object-store'
+
+function isMissingKeyError(err: unknown): boolean {
+  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } }
+  return e?.name === 'NoSuchKey' || e?.$metadata?.httpStatusCode === 404
+}
 
 export type S3ObjectStoreOptions = {
   endpoint: string
@@ -30,7 +35,7 @@ export class S3ObjectStore implements ObjectStore {
       const out = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }))
       return out.Body ? await out.Body.transformToByteArray() : null
     } catch (err) {
-      if (err instanceof NoSuchKey) return null
+      if (isMissingKeyError(err)) return null
       throw err
     }
   }
@@ -50,7 +55,10 @@ export class S3ObjectStore implements ObjectStore {
       const out = await this.client.send(new DeleteObjectsCommand({
         Bucket: this.bucket, Delete: { Objects: chunk.map((Key) => ({ Key })), Quiet: true },
       }))
-      if (out.Errors?.length) throw new Error(`object delete failed for ${out.Errors.length} keys`)
+      if (out.Errors?.length) {
+        const first = out.Errors[0]
+        throw new Error(`object delete failed for ${out.Errors.length} keys: ${first.Code} ${first.Message}`)
+      }
     }
   }
 }
