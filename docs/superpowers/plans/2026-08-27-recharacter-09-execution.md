@@ -1008,6 +1008,8 @@ export function decryptSecret(payloadBase64: string, kekBase64: string, aad: str
    - Lookups still fail OPEN with `console.error` (spend protection, not security), exactly like today.
 7. `gateway.ts`: `executeAiTask(ownerId, …)` reads the credential via `getEncryptedKey`, passes `ownerId` as AAD to `decryptSecret`; a decrypt failure returns `{ ok: false, status: 503, error: 'Your saved API key could not be read — re-enter it in AI settings', byokKeyRejected: true }`.
 8. `tasks.ts` `getTask`: `return Object.hasOwn(TASKS, name) ? TASKS[name as keyof typeof TASKS] : undefined` (F16).
+9. (Review round, 2026-08-27) `cases` carries `unique (id, owner_id)` and every case-scoped child table carries a composite FK `(case_id, owner_id) → cases(id, owner_id)`, so an owner/case mismatch is unrepresentable; every upsert also ends with `.returning()` and throws when zero rows changed, so a `setWhere` miss can never masquerade as a successful save.
+10. (Review round) The per-minute AI limit counts **attempts** (`ai_attempts`, inserted before `checkAiLimits`), not completed calls — concurrent bursts and provider-failure loops are bounded. Daily token caps still read `ai_usage`; the global ceiling uses a partial index on `ai_usage (created_at) where byok = false`, and sums are cast `::bigint`.
 
 **Integration suites (one invariant per `it`, all against the data-module functions, two synthetic owners `alice`/`bob` = `freshOwner()`):**
 - `cases`: `getOrCreateCase(alice)` twice → same id, one row; `getOrCreateCase(bob)` → different id; `assertCaseOwned(bob, aliceCase)` rejects `CaseNotFoundError`.
