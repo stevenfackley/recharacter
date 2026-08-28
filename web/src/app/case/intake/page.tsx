@@ -1,11 +1,29 @@
+import type { Metadata } from 'next'
+import { requireSessionUser } from '@/lib/session'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts, BRANCHES, CHARACTERIZATIONS } from '@/lib/facts'
-import type { Metadata } from 'next'
 import { branchLabel, characterizationLabel } from '@/lib/labels'
 import { uploadAndExtract, confirmFacts } from './actions'
 import { UploadField } from './upload-field'
 
 export const metadata: Metadata = { title: 'Your service facts' }
+
+/**
+ * The closed set of failures this page will name. `?error=` is rendered back
+ * onto recharacter.us, so only these codes resolve to copy — never the caller's
+ * own string (see lib/auth-errors.ts).
+ */
+const ERRORS = {
+  no_file: 'Choose a file to upload.',
+  file_too_large: 'That file is too large — 15 MB maximum.',
+  unsupported_file: 'PDF, JPEG, PNG, or WebP only.',
+  upload_failed: 'Upload failed — try again shortly.',
+  save_failed: 'Could not save your facts — try again shortly.',
+  extract_failed: 'We could not read the document automatically — enter your facts below.',
+  byok_key_rejected:
+    'Your AI provider rejected your API key — check it in AI settings, or enter your facts below.',
+  invalid_facts: 'Check the highlighted fields.',
+} as const
 
 export default async function IntakePage({
   searchParams,
@@ -13,8 +31,11 @@ export default async function IntakePage({
   searchParams: Promise<Record<string, string | undefined>>
 }) {
   const params = await searchParams
-  const c = await getOrCreateCase()
-  const facts = await getServiceFacts(c.id)
+  const user = await requireSessionUser('/case/intake')
+  const c = await getOrCreateCase(user.id)
+  const facts = await getServiceFacts(user.id, c.id)
+
+  const error = ERRORS[params.error as keyof typeof ERRORS] ?? null
 
   // Prefill comes ONLY from the database (unconfirmed extracted rows included) —
   // never from query params, which must stay free of personal data.
@@ -28,7 +49,7 @@ export default async function IntakePage({
   return (
     <main>
       <h1>Your service facts</h1>
-      {params.error && <p role="alert">{params.error}</p>}
+      {error && <p role="alert">{error}</p>}
       {params.extracted && (
         <p role="status">
           We read your document. Review every field below — you confirm what is correct.
