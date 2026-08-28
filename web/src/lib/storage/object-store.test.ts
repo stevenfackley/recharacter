@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { MemoryObjectStore } from './object-store'
-import { resetEnvForTests } from '@/lib/env'
 
 describe('MemoryObjectStore', () => {
   it('round-trips put/get', async () => {
@@ -8,6 +7,22 @@ describe('MemoryObjectStore', () => {
     const body = new Uint8Array([1, 2, 3])
     await store.put('a/b/c', body, 'application/octet-stream')
     expect(await store.get('a/b/c')).toEqual(body)
+  })
+
+  it('copies on put: mutating the caller\'s buffer afterwards does not affect the stored copy', async () => {
+    const store = new MemoryObjectStore()
+    const body = new Uint8Array([1, 2, 3])
+    await store.put('a', body, 'application/octet-stream')
+    body[0] = 99
+    expect(await store.get('a')).toEqual(new Uint8Array([1, 2, 3]))
+  })
+
+  it('copies on get: mutating the returned array does not affect the stored copy', async () => {
+    const store = new MemoryObjectStore()
+    await store.put('a', new Uint8Array([1, 2, 3]), 'application/octet-stream')
+    const got = await store.get('a')
+    got![0] = 99
+    expect(await store.get('a')).toEqual(new Uint8Array([1, 2, 3]))
   })
 
   it('get returns null for missing key', async () => {
@@ -36,13 +51,15 @@ describe('MemoryObjectStore', () => {
 describe('getObjectStore', () => {
   const OLD_ENV = { ...process.env }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules()
+    const { resetEnvForTests } = await import('@/lib/env')
     resetEnvForTests()
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     process.env = { ...OLD_ENV }
+    const { resetEnvForTests } = await import('@/lib/env')
     resetEnvForTests()
   })
 
