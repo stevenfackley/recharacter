@@ -1,14 +1,13 @@
 'use server'
 
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { signIn } from '@/auth'
+import { safeNext } from '@/lib/session'
 
-export async function signup(formData: FormData) {
-  const supabase = await createClient()
-  const { error } = await supabase.auth.signUp({
-    email: String(formData.get('email')),
-    password: String(formData.get('password')),
-  })
-  if (error) redirect(`/signup?error=${encodeURIComponent(error.message)}`)
-  redirect('/case')
+/**
+ * Same authorization request as sign-in, with the OIDC `prompt=create` hint —
+ * Keycloak >= 26.1 honours it by opening the registration form instead of the
+ * login form. There is no separate registration endpoint to call.
+ */
+export async function signupAction(formData: FormData) {
+  await signIn('keycloak', { redirectTo: safeNext(formData.get('next')) }, { prompt: 'create' })
 }
