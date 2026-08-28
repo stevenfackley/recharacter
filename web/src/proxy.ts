@@ -7,6 +7,10 @@ const PROTECTED = ['/case', '/settings', '/api/ai', '/api/packet', '/api/account
 // Next 16 convention: proxy.ts replaces the deprecated middleware.ts, and the
 // file exports exactly one handler — named `proxy` here, which is the form the
 // Next 16 docs show first. `auth()` resolves the session onto `req.auth`.
+//
+// This is a redirect convenience, not the authorization boundary: every
+// protected handler and page calls `getSessionUser()` itself and enforces
+// ownership there. Nothing may rely on the proxy having run.
 export const proxy = auth((req) => {
   const { pathname, search } = req.nextUrl
   const needsAuth = PROTECTED.some((p) => pathname === p || pathname.startsWith(p + '/'))
@@ -24,8 +28,11 @@ export const proxy = auth((req) => {
 })
 
 export const config = {
-  // Skip static assets, Auth.js's own routes, the health probe (container
-  // liveness must not depend on the auth provider being reachable), and
-  // anything with a file extension.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/auth|api/health|.*\\..*).*)'],
+  // Skip Next's build output, Auth.js's own routes, the health probe (container
+  // liveness must not depend on the auth provider being reachable), and static
+  // files — matched by an anchored list of asset extensions, not by "contains a
+  // dot", which would silently unguard real routes like /api/ai/extract.v2.
+  matcher: [
+    '/((?!_next/static|_next/image|favicon\\.ico|api/auth|api/health|.*\\.(?:ico|png|svg|jpg|jpeg|gif|webp|css|js|map|woff2?|ttf|txt|xml|webmanifest)$).*)',
+  ],
 }

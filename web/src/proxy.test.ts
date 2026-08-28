@@ -60,18 +60,19 @@ test('a path that merely starts with a protected prefix is not protected', async
   }
 })
 
-test('every protected prefix is guarded, at the root and below', async () => {
-  for (const path of [
-    '/case',
-    '/case/intake',
-    '/settings',
-    '/settings/ai',
-    '/api/ai/draft',
-    '/api/packet',
-    '/api/account/export',
-  ]) {
+test('every protected page prefix redirects, at the root and below', async () => {
+  for (const path of ['/case', '/case/intake', '/settings', '/settings/ai']) {
     const res = await run(request(`http://localhost:3000${path}`))
-    expect([307, 401], path).toContain(res.status)
+    expect(res.status, path).toBe(307)
+    expect(res.headers.get('location'), path).toContain('/login?next=')
+  }
+})
+
+test('every protected api prefix answers 401, at the root and below', async () => {
+  for (const path of ['/api/ai', '/api/ai/draft', '/api/packet', '/api/account/export']) {
+    const res = await run(request(`http://localhost:3000${path}`))
+    expect(res.status, path).toBe(401)
+    expect(res.headers.get('location'), path).toBeNull()
   }
 })
 
@@ -88,10 +89,22 @@ test('the matcher skips static assets, the health probe and auth.js own routes',
   // Container liveness must not depend on the auth provider being reachable.
   expect(matcher.test('/api/health')).toBe(false)
   expect(matcher.test('/api/auth/callback/keycloak')).toBe(false)
+  expect(matcher.test('/api/auth/session')).toBe(false)
   expect(matcher.test('/_next/static/chunk.js')).toBe(false)
   expect(matcher.test('/favicon.ico')).toBe(false)
   expect(matcher.test('/logo.svg')).toBe(false)
+  expect(matcher.test('/file.svg')).toBe(false)
   // Still catches what it is meant to guard.
   expect(matcher.test('/case')).toBe(true)
   expect(matcher.test('/api/packet')).toBe(true)
+})
+
+test('a dot in a protected path does not exempt it from the matcher', () => {
+  const matcher = new RegExp(`^${config.matcher[0]}$`)
+
+  // An extension allow-list, not "contains a dot": a versioned route segment or
+  // a case id with a period must stay guarded. Excluding every dotted path is
+  // how a protected route silently loses its guard.
+  expect(matcher.test('/api/ai/extract.v2')).toBe(true)
+  expect(matcher.test('/case/foo.bar')).toBe(true)
 })
