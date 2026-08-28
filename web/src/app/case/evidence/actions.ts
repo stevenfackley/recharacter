@@ -2,52 +2,55 @@
 
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
+import { getSessionUser, requireSessionUser } from '@/lib/session'
 import { getOrCreateCase } from '@/lib/cases'
 import { caseContextSchema, getCaseContext, saveCaseContext } from '@/lib/context'
+import { getEvidenceStatuses, setEvidenceStatus } from '@/lib/evidence-items'
 import { executeAiTask } from '@/lib/ai/gateway'
 import {
   EVIDENCE_CATALOG, recommendEvidence, scoreCase,
-  type EvidenceStatusMap, type EvidenceType,
+  type EvidenceStatus, type EvidenceType,
 } from '@/lib/evidence'
 
 export async function saveContext(formData: FormData) {
+  const user = await requireSessionUser('/case/evidence')
+
   const parsed = caseContextSchema.safeParse({
     conditionCategory: String(formData.get('conditionCategory') ?? ''),
     mstInvolved: formData.get('mstInvolved') === 'on',
     treatedInService: formData.get('treatedInService') === 'on',
     hasVaRating: formData.get('hasVaRating') === 'on',
   })
-  if (!parsed.success) redirect('/case/evidence?error=' + encodeURIComponent('Check the form'))
+  if (!parsed.success) redirect('/case/evidence?error=invalid_context')
 
-  const c = await getOrCreateCase()
-  await saveCaseContext(c.id, parsed.data)
+  const c = await getOrCreateCase(user.id)
+  try {
+    await saveCaseContext(user.id, c.id, parsed.data)
+  } catch (err) {
+    console.error('case context save failed:', err instanceof Error ? err.message : err)
+    redirect('/case/evidence?error=save_failed')
+  }
   redirect('/case/evidence')
 }
 
-const STATUSES = ['needed', 'requested', 'collected', 'not_applicable']
+const STATUSES: readonly EvidenceStatus[] = ['needed', 'requested', 'collected', 'not_applicable']
 
 export async function setItemStatus(formData: FormData) {
   const itemType = String(formData.get('itemType') ?? '')
   const status = String(formData.get('status') ?? '')
-  if (!STATUSES.includes(status)) redirect('/case/evidence')
+  if (!STATUSES.includes(status as EvidenceStatus)) redirect('/case/evidence')
   // App-level allowlist symmetric with the status check (the DB check constraint
   // remains the backstop, but a bad type shouldn't read as a transient error).
   if (!(itemType in EVIDENCE_CATALOG)) redirect('/case/evidence')
 
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  const c = await getOrCreateCase()
-  const { error } = await supabase.from('evidence_items').upsert(
-    {
-      case_id: c.id, owner_id: user!.id, item_type: itemType,
-      status, updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'case_id,item_type' },
-  )
-  if (error) redirect('/case/evidence?error=' + encodeURIComponent('Could not save — try again'))
+  const user = await requireSessionUser('/case/evidence')
+  const c = await getOrCreateCase(user.id)
+  try {
+    await setEvidenceStatus(user.id, c.id, itemType as EvidenceType, status as EvidenceStatus)
+  } catch (err) {
+    console.error('evidence status save failed:', err instanceof Error ? err.message : err)
+    redirect('/case/evidence?error=save_failed')
+  }
   revalidatePath('/case/evidence')
 }
 
@@ -56,10 +59,9 @@ export async function getCoaching(input: {
   score: number; band: 'building' | 'developing' | 'strong'
   topGapLabel: string | null; collectedLabels: string[]
 }): Promise<string | null> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSessionUser()
   if (!user) return null
-  const result = await executeAiTask(supabase, user.id, 'coaching_note', input)
+  const result = await executeAiTask(user.id, 'coaching_note', input)
   return result.ok ? (result.data as { note: string }).note : null
 }
 
@@ -74,16 +76,14 @@ export async function requestCoaching(
   _prev: { note: string | null },
   _formData: FormData,
 ): Promise<{ note: string | null }> {
-  const c = await getOrCreateCase()
-  const ctx = await getCaseContext(c.id)
+  const user = await getSessionUser()
+  if (!user) return { note: null }
+
+  const c = await getOrCreateCase(user.id)
+  const ctx = await getCaseContext(user.id, c.id)
   if (!ctx) return { note: null }
 
-  const supabase = await createClient()
-  const { data: itemRows } = await supabase
-    .from('evidence_items').select('item_type, status').eq('case_id', c.id)
-  const statuses: EvidenceStatusMap = Object.fromEntries(
-    (itemRows ?? []).map((r) => [r.item_type as EvidenceType, r.status]),
-  )
+  const statuses = await getEvidenceStatuses(user.id, c.id)
 
   const recommended = recommendEvidence(ctx)
   const result = scoreCase(recommended, statuses)
