@@ -42,11 +42,14 @@ export async function usageTotals(
 ): Promise<{ inputTokens: number; outputTokens: number; calls: number }> {
   const [row] = await getDb()
     .select({
-      inputTokens: sql<number>`coalesce(sum(${aiUsage.inputTokens}), 0)::int`,
-      outputTokens: sql<number>`coalesce(sum(${aiUsage.outputTokens}), 0)::int`,
+      // bigint, not int: a lifetime sum overflows int4 long before it stops
+      // being interesting, and 22003 here would hide the number from the veteran.
+      inputTokens: sql<string>`coalesce(sum(${aiUsage.inputTokens}), 0)::bigint`,
+      outputTokens: sql<string>`coalesce(sum(${aiUsage.outputTokens}), 0)::bigint`,
       calls: count(),
     })
     .from(aiUsage)
     .where(eq(aiUsage.ownerId, ownerId))
-  return row ?? { inputTokens: 0, outputTokens: 0, calls: 0 }
+  if (!row) return { inputTokens: 0, outputTokens: 0, calls: 0 }
+  return { inputTokens: Number(row.inputTokens), outputTokens: Number(row.outputTokens), calls: row.calls }
 }
