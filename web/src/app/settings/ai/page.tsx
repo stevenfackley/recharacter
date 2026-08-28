@@ -1,34 +1,49 @@
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/server'
-import { saveByokKey, removeByokKey } from './actions'
 import type { Metadata } from 'next'
+import { requireSessionUser } from '@/lib/session'
+import { credentialCreatedAt } from '@/lib/ai/credentials'
+import { usageTotals } from '@/lib/ai/usage'
+import { saveByokKey, removeByokKey } from './actions'
 
 export const metadata: Metadata = { title: 'AI settings' }
 
-export default async function AiSettingsPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null // middleware redirects; this is belt-and-suspenders
+/** Closed set: only these codes resolve to copy, never `params.error` itself. */
+const ERRORS = {
+  invalid_key: 'Enter your API key.',
+  save_failed: 'Could not save your key — try again shortly.',
+  remove_failed: 'Could not remove your key — try again shortly.',
+  kek_missing: 'Saved keys are unavailable right now. Nothing was stored; try again later.',
+} as const
 
-  const { data: credential } = await supabase
-    .from('ai_credentials').select('created_at').eq('owner_id', user.id).maybeSingle()
+export default async function AiSettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>
+}) {
+  const params = await searchParams
+  const user = await requireSessionUser('/settings/ai')
 
-  const { data: usage } = await supabase
-    .from('ai_usage').select('input_tokens, output_tokens').eq('owner_id', user.id)
-  const totals = (usage ?? []).reduce(
-    (acc, r) => ({ input: acc.input + r.input_tokens, output: acc.output + r.output_tokens }),
-    { input: 0, output: 0 },
-  )
+  // Existence and age only — the stored key is ciphertext and never leaves the server.
+  const savedAt = await credentialCreatedAt(user.id)
+  // Summed in Postgres: paging every usage row into JS to add two columns is a
+  // query that gets slower for the veterans who use the product most.
+  const totals = await usageTotals(user.id)
+
+  const error = ERRORS[params.error as keyof typeof ERRORS] ?? null
 
   return (
     <main>
       <h1>AI settings</h1>
+      {error && <p role="alert">{error}</p>}
 
       <section>
         <h2>Your own API key (BYOK)</h2>
-        {credential ? (
+        {savedAt ? (
           <>
-            <p>A key is saved (encrypted). AI requests bill your own Anthropic account.</p>
+            <p>
+              A key is saved (encrypted) since {savedAt.toLocaleDateString()}. AI requests bill
+              your own Anthropic account.
+            </p>
             <form action={removeByokKey}>
               <button type="submit">Remove my key</button>
             </form>
@@ -46,7 +61,10 @@ export default async function AiSettingsPage() {
 
       <section>
         <h2>Usage</h2>
-        <p>{totals.input.toLocaleString()} input / {totals.output.toLocaleString()} output tokens</p>
+        <p>
+          {totals.inputTokens.toLocaleString()} input / {totals.outputTokens.toLocaleString()} output
+          tokens over {totals.calls.toLocaleString()} request{totals.calls === 1 ? '' : 's'}
+        </p>
       </section>
 
       <p><Link href="/settings/data">Your data — export or delete everything</Link></p>
