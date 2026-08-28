@@ -36,6 +36,10 @@ export async function saveContext(formData: FormData) {
 const STATUSES: readonly EvidenceStatus[] = ['needed', 'requested', 'collected', 'not_applicable']
 
 export async function setItemStatus(formData: FormData) {
+  // The session first: an unauthenticated caller learns nothing about which
+  // item types or statuses this app accepts.
+  const user = await requireSessionUser('/case/evidence')
+
   const itemType = String(formData.get('itemType') ?? '')
   const status = String(formData.get('status') ?? '')
   if (!STATUSES.includes(status as EvidenceStatus)) redirect('/case/evidence')
@@ -43,7 +47,6 @@ export async function setItemStatus(formData: FormData) {
   // remains the backstop, but a bad type shouldn't read as a transient error).
   if (!(itemType in EVIDENCE_CATALOG)) redirect('/case/evidence')
 
-  const user = await requireSessionUser('/case/evidence')
   const c = await getOrCreateCase(user.id)
   try {
     await setEvidenceStatus(user.id, c.id, itemType as EvidenceType, status as EvidenceStatus)
@@ -54,15 +57,27 @@ export async function setItemStatus(formData: FormData) {
   revalidatePath('/case/evidence')
 }
 
-/** Optional AI encouragement — renders the DETERMINISTIC score/gap into prose. */
-export async function getCoaching(input: {
+/**
+ * Optional AI encouragement — renders the DETERMINISTIC score/gap into prose.
+ *
+ * NOT exported: everything exported from a 'use server' module is a public RPC
+ * endpoint, and an exported getCoaching would let a caller supply its own
+ * topGapLabel and collectedLabels — exactly the prompt-steering that recomputing
+ * the inputs server-side exists to prevent.
+ */
+async function getCoaching(ownerId: string, input: {
   score: number; band: 'building' | 'developing' | 'strong'
   topGapLabel: string | null; collectedLabels: string[]
 }): Promise<string | null> {
-  const user = await getSessionUser()
-  if (!user) return null
-  const result = await executeAiTask(user.id, 'coaching_note', input)
-  return result.ok ? (result.data as { note: string }).note : null
+  try {
+    const result = await executeAiTask(ownerId, 'coaching_note', input)
+    return result.ok ? (result.data as { note: string }).note : null
+  } catch (err) {
+    // The gateway can now reject outright (an attempt it could not record).
+    // Encouragement is optional; a missing note is the right outcome, never a 500.
+    console.error('coaching note failed:', err instanceof Error ? err.message : err)
+    return null
+  }
 }
 
 /**
@@ -91,7 +106,7 @@ export async function requestCoaching(
     .filter((item) => statuses[item.type] === 'collected')
     .map((item) => item.label)
 
-  const note = await getCoaching({
+  const note = await getCoaching(user.id, {
     score: result.score,
     band: result.band,
     topGapLabel: result.topGap?.label ?? null,

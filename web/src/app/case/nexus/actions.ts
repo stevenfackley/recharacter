@@ -1,7 +1,6 @@
 'use server'
 
 import { refresh } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { getSessionUser, requireSessionUser } from '@/lib/session'
 import { executeAiTask } from '@/lib/ai/gateway'
 import { getOrCreateCase } from '@/lib/cases'
@@ -51,6 +50,20 @@ export async function saveAnswer(_prev: SaveState, formData: FormData): Promise<
 export type ShapeState = { shapedAnswer: string | null; gaps: string | null }
 
 /**
+ * Why a refused shaping returns state instead of redirecting: the four answers
+ * live in four client textareas, and a navigation away from this page throws
+ * away every unsaved word in the other three (issue #9). A veteran who presses
+ * "Help me phrase this" without the unlock gets told so in place, with the
+ * upgrade page named, and their typing survives.
+ */
+const PAYMENT_REQUIRED_NOTE =
+  'Phrasing help needs the case unlock or your own API key — see /case/upgrade. ' +
+  'Your answers here are untouched.'
+
+const AI_UNAVAILABLE_NOTE =
+  'Phrasing help is unavailable right now. Your answers here are untouched.'
+
+/**
  * Optional AI phrasing help. Returns the PROPOSAL as the action result — rendered
  * into the textarea client-side by a small per-question client component and
  * NEVER written to the database or a URL until the veteran presses Save. This
@@ -70,14 +83,22 @@ export async function shapeAnswer(_prev: ShapeState, formData: FormData): Promis
   const rawNarrative = String(formData.get('text') ?? '').trim()
   if (!rawNarrative) return { shapedAnswer: null, gaps: null }
 
-  const result = await executeAiTask(user.id, 'shape_nexus_answer', {
-    questionKey: question.key,
-    questionPrompt: question.prompt,
-    rawNarrative,
-  })
+  let result
+  try {
+    result = await executeAiTask(user.id, 'shape_nexus_answer', {
+      questionKey: question.key,
+      questionPrompt: question.prompt,
+      rawNarrative,
+    })
+  } catch (err) {
+    // The gateway can reject outright (an attempt it could not record). Inline
+    // state, never a 500 that would take the other three answers with it.
+    console.error('shape_nexus_answer failed:', err instanceof Error ? err.message : err)
+    return { shapedAnswer: null, gaps: AI_UNAVAILABLE_NOTE }
+  }
   if (!result.ok) {
-    if (result.status === 402) redirect('/case/upgrade')
-    return { shapedAnswer: null, gaps: null }
+    if (result.status === 402) return { shapedAnswer: null, gaps: PAYMENT_REQUIRED_NOTE }
+    return { shapedAnswer: null, gaps: AI_UNAVAILABLE_NOTE }
   }
 
   const d = result.data as { shapedAnswer: string; gaps: string }

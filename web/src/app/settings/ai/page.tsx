@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: 'AI settings' }
 
 /** Closed set: only these codes resolve to copy, never `params.error` itself. */
 const ERRORS = {
-  invalid_key: 'Enter your API key.',
+  invalid_key: 'That does not look like an Anthropic API key — they begin with “sk-ant-”.',
   save_failed: 'Could not save your key — try again shortly.',
   remove_failed: 'Could not remove your key — try again shortly.',
   kek_missing: 'Saved keys are unavailable right now. Nothing was stored; try again later.',

@@ -65,7 +65,13 @@ export function NexusQuestion({
             rows={8}
           />
         </label>
-        {state.gaps && <p role="status">Something to consider: {state.gaps}</p>}
+        {/* With a proposal, `gaps` is the model's note about what is missing;
+            without one it is why the shaping did not run (no unlock, AI down). */}
+        {state.gaps && (
+          <p role="status">
+            {state.shapedAnswer ? `Something to consider: ${state.gaps}` : state.gaps}
+          </p>
+        )}
         {saveState.saved && !editedSinceSave && <p role="status">Saved.</p>}
         {saveState.error && !editedSinceSave && <p role="alert">{saveState.error}</p>}
         <button type="submit" formAction={saveFormAction} disabled={saving}>

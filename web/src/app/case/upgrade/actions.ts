@@ -2,26 +2,17 @@
 
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
-import Stripe from 'stripe'
-import { getSessionUser, requireSessionUser } from '@/lib/session'
+import { requireSessionUser } from '@/lib/session'
 import { getEnv } from '@/lib/env'
-import {
-  recordPendingCheckout, grantEntitlement, listPendingCheckouts,
-} from '@/lib/billing'
+import { recordPendingCheckout } from '@/lib/billing'
+import { getStripeClient, restorePurchase } from '@/lib/billing-verify'
 
 /**
- * A single restore must not fan out into an unbounded number of Stripe
- * round-trips: one veteran with a long history of abandoned checkouts would turn
- * one button press into dozens of API calls. Five is well past any honest case.
+ * Only real form actions live here. Everything exported from a 'use server'
+ * module is a public RPC endpoint the browser can call with arguments of its
+ * choosing, so the verification helpers stay in lib/billing-verify.ts — reached
+ * only through these two, which resolve the owner from the session first.
  */
-const MAX_RESTORE_SESSIONS = 5
-
-/** Null when Stripe isn't configured — the friendly "not yet configured" path, never a crash. */
-function getStripeClient(): Stripe | null {
-  const key = getEnv().STRIPE_SECRET_KEY
-  if (!key) return null
-  return new Stripe(key)
-}
 
 /** Starts hosted Stripe Checkout for the one-time case unlock. */
 export async function startCheckout() {
@@ -50,62 +41,9 @@ export async function startCheckout() {
   redirect(session.url)
 }
 
-/**
- * The security-critical check: a session grants an entitlement ONLY when Stripe
- * confirms it was actually paid AND it was created for THIS signed-in user
- * (client_reference_id) — otherwise a session id leaked via a shared link or a
- * server log could be replayed by a different signed-in user to self-grant.
- */
-export async function verifySession(sessionId: string): Promise<boolean> {
-  const user = await getSessionUser()
-  if (!user) return false
-
-  const stripe = getStripeClient()
-  if (!stripe) return false
-
-  let session
-  try {
-    session = await stripe.checkout.sessions.retrieve(sessionId)
-  } catch (err) {
-    // Fabricated/expired session id, or a Stripe outage. Fail closed — but log,
-    // so a real outage doesn't silently read as "not granted" with no trace.
-    console.error('verifySession: session retrieve failed', err)
-    return false
-  }
-
-  if (session.payment_status !== 'paid') return false
-  if (session.client_reference_id !== user.id) return false
-
-  try {
-    // 'already_entitled' is success: a redelivered success redirect must not
-    // read as a failed purchase to the veteran who already paid.
-    await grantEntitlement(user.id, sessionId)
-  } catch (err) {
-    // The one failure grantEntitlement refuses to swallow is a session id that
-    // belongs to a DIFFERENT owner. Fail closed.
-    console.error('verifySession: entitlement grant failed', err)
-    return false
-  }
-  return true
-}
-
-/** Recovers a paid unlock if the success redirect never happened. */
-export async function restorePurchase(): Promise<{ granted: boolean }> {
-  const user = await getSessionUser()
-  if (!user) return { granted: false }
-
-  const pending = (await listPendingCheckouts(user.id)).slice(0, MAX_RESTORE_SESSIONS)
-
-  let granted = false
-  for (const sessionId of pending) {
-    if (await verifySession(sessionId)) granted = true
-  }
-  if (granted) revalidatePath('/case/upgrade')
-  return { granted }
-}
-
-/** Form-action wrapper: `<form action>` requires a void-returning function; the boolean
- * result of restorePurchase() is for callers that hold a reference (tests, future UI). */
+/** "Restore a previous purchase" — the button's only entry point. */
 export async function restorePurchaseAction(): Promise<void> {
-  await restorePurchase()
+  const user = await requireSessionUser('/case/upgrade')
+  const { granted } = await restorePurchase(user.id)
+  if (granted) revalidatePath('/case/upgrade')
 }

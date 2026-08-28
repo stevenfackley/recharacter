@@ -20,9 +20,13 @@ const ERRORS = {
   generate_failed: 'Could not generate that right now — try again shortly.',
   byok_key_rejected:
     'Your AI provider rejected your API key — check it in AI settings, then generate again.',
+  byok_key_unreadable:
+    'Your saved API key could not be read, so it was never sent anywhere — re-enter it in ' +
+    'AI settings, then generate again.',
   rate_limited: 'Too many AI requests just now — wait a minute, then generate again.',
-  payment_required: 'Drafting needs the case unlock or your own API key.',
-  ai_unavailable: 'Drafting needs an AI key — you can also write this document directly below.',
+  ai_unavailable:
+    'AI drafting is temporarily unavailable on our side — you can write this document ' +
+    'directly below in the meantime.',
   routing_unavailable: 'The routing service is unavailable right now — try again shortly.',
   draft_too_long: 'Draft too long (50,000 characters max).',
 } as const

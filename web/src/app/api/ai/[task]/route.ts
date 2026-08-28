@@ -17,7 +17,16 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ task: 
     return NextResponse.json({ error: 'Invalid input for task' }, { status: 400 })
   }
 
-  const result = await executeAiTask(user.id, taskName, input)
+  let result
+  try {
+    result = await executeAiTask(user.id, taskName, input)
+  } catch (err) {
+    // The gateway rejects (rather than resolving a refusal) when it cannot even
+    // record the attempt. The message is ours; the input is the veteran's, and
+    // none of it goes to a log.
+    console.error(`ai task ${taskName} failed:`, err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'ai_unavailable' }, { status: 503 })
+  }
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
   return NextResponse.json(result.data)
 }

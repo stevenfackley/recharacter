@@ -33,16 +33,38 @@ async function regenerateAllowed(
 }
 
 /**
- * One mapping from a refused AI task to the page's error CODE. The distinction
- * that matters is byokKeyRejected: the veteran's own key is broken and a retry
- * can never succeed, so that failure gets its own code whose copy points at AI
- * settings instead of promising another attempt.
+ * One mapping from a refused AI task to the page's error CODE.
+ *
+ * The two BYOK failures are deliberately separate codes. A 502 means the
+ * provider saw the key and rejected it; a 503 means we could not decrypt what we
+ * stored, so the provider never saw anything at all. Both are fixed by
+ * re-entering the key and neither is fixed by retrying, but telling a veteran
+ * that Anthropic rejected a key Anthropic never received is simply false.
  */
 function generateFailureCode(result: Extract<AiTaskResult, { ok: false }>): string {
-  if (result.byokKeyRejected) return 'byok_key_rejected'
+  if (result.byokKeyRejected) {
+    return result.status === 503 ? 'byok_key_unreadable' : 'byok_key_rejected'
+  }
   if (result.status === 429) return 'rate_limited'
   if (result.status === 503) return 'ai_unavailable'
   return 'generate_failed'
+}
+
+/**
+ * The gateway REJECTS (rather than resolving a refusal) when it cannot even
+ * record the attempt. Every action that calls it owns that at its own boundary —
+ * an unhandled rejection here is a blank 500 on a page the veteran was mid-way
+ * through.
+ */
+async function runTask(
+  ownerId: string, taskName: string, input: unknown,
+): Promise<AiTaskResult> {
+  try {
+    return await executeAiTask(ownerId, taskName, input)
+  } catch (err) {
+    console.error(`ai task ${taskName} failed:`, err instanceof Error ? err.message : err)
+    return { ok: false, status: 503, error: 'AI unavailable' }
+  }
 }
 
 /** Assembles the personal statement exclusively from the four approved Kurta answers. */
@@ -66,7 +88,7 @@ export async function generateStatement(formData: FormData) {
     .map(([itemType]) => EVIDENCE_CATALOG[itemType as EvidenceType]?.label)
     .filter((label): label is string => Boolean(label))
 
-  const result = await executeAiTask(user.id, 'draft_statement', {
+  const result = await runTask(user.id, 'draft_statement', {
     answers,
     branch: facts.branch,
     characterization: facts.characterization,
@@ -119,7 +141,7 @@ export async function generateCoverLetter(formData: FormData) {
   const conditionSummary =
     `${CONDITION_SUMMARY_LABELS[ctx.conditionCategory] ?? 'a mental-health condition'} arising during service`
 
-  const result = await executeAiTask(user.id, 'draft_cover_letter', {
+  const result = await runTask(user.id, 'draft_cover_letter', {
     boardName: routing.boardName,
     form: routing.recommendedForm,
     branch: facts.branch,
