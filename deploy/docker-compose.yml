@@ -2,25 +2,47 @@
 # docker). NO published ports: ingress is exclusively the Cloudflare Tunnel
 # (cloudflared dials out), so the box needs no open inbound HTTP at all.
 # Tunnel public hostname routes: recharacter.us -> http://web:3000
+#
+# Images are pinned by IMAGE_TAG (the deploying commit's SHA, upserted into
+# the box .env by .github/workflows/deploy.yml before `docker compose pull`)
+# so a deploy is reproducible and a rollback is `IMAGE_TAG=<sha> docker
+# compose up -d`. IMAGE_TAG defaults to `latest` only for a fresh box before
+# the first deploy has run.
 
 name: recharacter
 
 services:
   web:
-    image: ghcr.io/stevenfackley/recharacter-web:latest
+    image: ghcr.io/stevenfackley/recharacter-web:${IMAGE_TAG:-latest}
     restart: unless-stopped
     env_file: .env
     environment:
       ROUTING_API_URL: http://routing:8080
     depends_on:
-      - routing
+      routing:
+        condition: service_healthy
+    healthcheck:
+      # node:26-alpine (the web image's base) has busybox wget but no curl.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   routing:
-    image: ghcr.io/stevenfackley/recharacter-routing:latest
+    image: ghcr.io/stevenfackley/recharacter-routing:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    healthcheck:
+      # aspnet:10.0 has bash but no curl/wget, so speak raw HTTP over
+      # bash's /dev/tcp instead of shipping an extra tool into the image.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /healthz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.8.2
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:

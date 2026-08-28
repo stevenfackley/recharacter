@@ -23,3 +23,13 @@ test('unauthenticated request to a public route is not redirected', async () => 
 
   expect(res.status).toBe(200)
 })
+
+test('matcher excludes /api/health so the proxy never runs on it', async () => {
+  const { config } = await import('@/proxy')
+  const [pattern] = config.matcher
+  const matcher = new RegExp(`^${pattern}$`)
+
+  expect(matcher.test('/api/health')).toBe(false)
+  // Sanity check the pattern still catches routes it's meant to guard.
+  expect(matcher.test('/case')).toBe(true)
+})

@@ -23,6 +23,8 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
 });
 app.UseStatusCodePages();
 
+app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
+
 app.MapPost("/route", (DischargeFacts facts, DischargeRouter router) =>
 {
     try
