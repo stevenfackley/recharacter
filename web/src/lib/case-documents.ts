@@ -80,16 +80,20 @@ export async function listOwnerDocuments(store: ObjectStore, ownerId: string): P
  * Deletes every object under the owner's prefix. Sweeps up to 3 list->remove passes
  * (objects can reappear in a listing between the list and the remove call under
  * eventual consistency) and only throws if something survives the third pass.
+ *
+ * The count is of DISTINCT keys removed, not keys submitted: a key that a later
+ * pass re-lists was already counted, and reporting it twice would inflate the
+ * number the deletion receipt shows the veteran.
  */
 export async function removeOwnerDocuments(store: ObjectStore, ownerId: string): Promise<number> {
   assertId('ownerId', ownerId)
-  let totalRemoved = 0
+  const removed = new Set<string>()
   let keys = await listOwnerDocuments(store, ownerId)
   for (let pass = 0; pass < 3 && keys.length; pass += 1) {
     await store.remove(keys)
-    totalRemoved += keys.length
+    for (const key of keys) removed.add(key)
     keys = await listOwnerDocuments(store, ownerId)
   }
   if (keys.length) throw new Error(`${keys.length} objects survived deletion sweep`)
-  return totalRemoved
+  return removed.size
 }

@@ -39,7 +39,15 @@ export async function deleteAccount(formData: FormData) {
     redirect('/settings/data?error=deletion_failed')
   }
 
-  // The Keycloak session died with the user; this clears our own cookie.
-  await signOut({ redirect: false })
+  // The Keycloak session died with the user; this clears our own cookie. If it
+  // fails, the account is still gone and the cookie is already worthless — the
+  // veteran must not be shown a deletion error over it.
+  try {
+    await signOut({ redirect: false })
+  } catch (err) {
+    console.error('sign-out after account deletion failed', {
+      message: err instanceof Error ? err.message : String(err),
+    })
+  }
   redirect('/login?deleted=1')
 }
