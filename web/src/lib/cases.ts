@@ -1,29 +1,45 @@
-import { createClient } from '@/lib/supabase/server'
+import { and, eq } from 'drizzle-orm'
+import { getDb } from '@/db'
+import { cases } from '@/db/schema'
 
-export type Case = { id: string; owner_id: string; created_at: string; updated_at: string }
-
-/** Returns the signed-in user's most recent case, creating one if none exists. */
-export async function getOrCreateCase(): Promise<Case> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data: existing } = await supabase
-    .from('cases').select('*').eq('owner_id', user.id)
-    .order('created_at', { ascending: false }).limit(1).maybeSingle()
-  if (existing) return existing as Case
-
-  const { data: created, error } = await supabase
-    .from('cases').insert({ owner_id: user.id }).select().single()
-  if (error) {
-    // 23505 = unique_violation on cases_one_per_owner: a concurrent request won the
-    // creation race between our select and insert. The row exists now — fetch it.
-    if (error.code === '23505') {
-      const { data: raced } = await supabase
-        .from('cases').select('*').eq('owner_id', user.id).single()
-      if (raced) return raced as Case
-    }
-    throw error
+/**
+ * A case id that does not exist, or does not belong to the asking owner. The two
+ * are deliberately indistinguishable: telling a stranger that a case id is real
+ * but not theirs is itself a disclosure.
+ */
+export class CaseNotFoundError extends Error {
+  constructor(message = 'Case not found') {
+    super(message)
+    this.name = 'CaseNotFoundError'
   }
-  return created as Case
+}
+
+/**
+ * Returns the owner's case, creating one if none exists.
+ *
+ * `on conflict do nothing` + re-select is the whole race handling: two
+ * concurrent requests both attempt the insert, one wins, and both then read the
+ * single row the `cases_one_per_owner` index guarantees. No 23505 parsing.
+ */
+export async function getOrCreateCase(ownerId: string): Promise<{ id: string }> {
+  const db = getDb()
+  await db.insert(cases).values({ ownerId }).onConflictDoNothing({ target: cases.ownerId })
+  const [row] = await db.select().from(cases).where(eq(cases.ownerId, ownerId)).limit(1)
+  if (!row) throw new Error('case row vanished immediately after upsert')
+  return row
+}
+
+/**
+ * The authorization check that replaced RLS on every case-scoped write: prove
+ * the case belongs to this owner BEFORE touching any child table. Callers must
+ * await it first — a child upsert alone would happily attach a row to someone
+ * else's case id.
+ */
+export async function assertCaseOwned(ownerId: string, caseId: string): Promise<void> {
+  const [row] = await getDb()
+    .select({ id: cases.id })
+    .from(cases)
+    .where(and(eq(cases.id, caseId), eq(cases.ownerId, ownerId)))
+    .limit(1)
+  if (!row) throw new CaseNotFoundError()
 }
