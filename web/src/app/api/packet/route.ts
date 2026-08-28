@@ -88,8 +88,16 @@ export async function GET() {
     evidence,
   }
 
-  const sections = buildPacketSections(input)
-  const bytes = await renderPacket(sections, { title: `Recharacter Packet — ${input.generatedOn}` })
+  let bytes: Uint8Array
+  try {
+    const sections = buildPacketSections(input)
+    bytes = await renderPacket(sections, { title: `Recharacter Packet — ${input.generatedOn}` })
+  } catch (err) {
+    // Never log user content (statement/cover-letter text) — only the
+    // underlying error message pdf-lib (or the section builder) produced.
+    console.error('packet render failed:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'packet_render_failed' }, { status: 500 })
+  }
 
   return new NextResponse(Buffer.from(bytes), {
     status: 200,

@@ -1,5 +1,33 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
+import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
+import fontkit from '@pdf-lib/fontkit'
 import type { PacketLine, PacketSection } from './sections'
+
+// pdf-lib's StandardFonts (e.g. TimesRoman) only support the WinAnsi
+// encoding and *throw* on any codepoint outside it — a veteran's free-text
+// personal statement can contain non-Latin names, Cyrillic, emoji, or
+// Word's smart punctuation (U+2011 non-breaking hyphen, curly quotes), all
+// of which would crash the render. Noto Serif is a real Unicode font
+// (SIL OFL 1.1, vendored under ./fonts/) embedded via fontkit instead.
+//
+// Resolved relative to this module's own file (not `process.cwd()`, which
+// doesn't survive Next's `.next/standalone` output) so it works in
+// `next dev`, `vitest`, and the standalone build alike. `fileURLToPath` +
+// `path.join` is used instead of `new URL('./fonts/...', import.meta.url)`
+// directly — under vitest's jsdom environment the global `URL` fails to
+// resolve a `file:///C:/...` Windows base and silently falls back to
+// `http://localhost:3000/...`, which then fails `fs.readFileSync`.
+// `new Uint8Array(buffer)` (rather than using the Node `Buffer` directly) is
+// deliberate: pdf-lib validates font bytes with `instanceof Uint8Array`, and
+// under a jsdom test environment `Buffer` is a subclass of a *different*
+// realm's `Uint8Array` than the ambient global one, so the raw Buffer fails
+// that check there even though it passes fine in a real Node runtime.
+// Re-wrapping in the ambient `Uint8Array` makes it realm-agnostic.
+const FONTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fonts')
+const REGULAR_FONT_BYTES = new Uint8Array(readFileSync(path.join(FONTS_DIR, 'NotoSerif-Regular.ttf')))
+const BOLD_FONT_BYTES = new Uint8Array(readFileSync(path.join(FONTS_DIR, 'NotoSerif-Bold.ttf')))
 
 // Mechanical layout code — one file, no cleverness. Letter page, 72pt margins.
 const PAGE_WIDTH = 612
@@ -82,9 +110,10 @@ export async function renderPacket(
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create()
   doc.setTitle(meta.title)
+  doc.registerFontkit(fontkit)
 
-  const font = await doc.embedFont(StandardFonts.TimesRoman)
-  const boldFont = await doc.embedFont(StandardFonts.TimesRomanBold)
+  const font = await doc.embedFont(REGULAR_FONT_BYTES, { subset: true })
+  const boldFont = await doc.embedFont(BOLD_FONT_BYTES, { subset: true })
 
   let page: PDFPage = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
   let y = PAGE_HEIGHT - MARGIN
