@@ -29,6 +29,16 @@ vi.mock('@/lib/drafts', () => ({
   getDraft: (...args: unknown[]) => mockGetDraft(...args),
 }))
 
+// Delegates to the real renderPacket by default so the existing happy-path
+// assertions (real %PDF bytes) still hold; only the "render throws" test
+// below overrides this with a rejection.
+const mockRenderPacket = vi.fn()
+vi.mock('@/lib/packet/render', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/packet/render')>()
+  mockRenderPacket.mockImplementation(actual.renderPacket)
+  return { renderPacket: (...args: Parameters<typeof actual.renderPacket>) => mockRenderPacket(...args) }
+})
+
 const CASE = { id: 'case-1', owner_id: 'user-1' }
 const FACTS = {
   id: 'facts-1',
@@ -150,6 +160,14 @@ describe('GET /api/packet', () => {
     expect(body.error).toBeTruthy()
     expect(body.upgrade).toBe('/case/upgrade')
     expect(mockRouteDischarge).not.toHaveBeenCalled()
+  })
+
+  test('500 with a packet_render_failed JSON body when renderPacket throws (e.g. non-WinAnsi text), not an unhandled rejection', async () => {
+    mockRenderPacket.mockRejectedValueOnce(new Error('WinAnsi cannot encode "🚀" (0x1f680)'))
+    const res = await callRoute()
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body.error).toBe('packet_render_failed')
   })
 
   test('a BYOK credential alone satisfies the gate (200, no paid unlock needed)', async () => {
