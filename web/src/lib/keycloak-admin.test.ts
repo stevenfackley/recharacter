@@ -55,7 +55,7 @@ describe('keycloak-admin', () => {
     })
 
     it('POSTs to the token endpoint with redirect: manual and the client credentials body', async () => {
-      const fetchImpl = vi.fn(async () =>
+      const fetchImpl = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
         new Response(JSON.stringify({ access_token: 'tok-123' }), { status: 200 }),
       )
       const admin = createKeycloakAdmin(fetchImpl)
@@ -100,7 +100,7 @@ describe('keycloak-admin', () => {
     })
 
     it('calls DELETE on the encoded user path with a bearer token, resolves on 204', async () => {
-      const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }))
+      const fetchImpl = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 204 }))
       const admin = createKeycloakAdmin(fetchImpl)
       await expect(admin.deleteUser('abc def', 't')).resolves.toBeUndefined()
 
@@ -149,7 +149,7 @@ describe('keycloak-admin', () => {
       process.env.KEYCLOAK_ADMIN_BASE_URL = 'https://admin.example.test/'
       resetEnvForTests()
 
-      const fetchImpl = vi.fn(async () =>
+      const fetchImpl = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
         new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 }),
       )
       const admin = createKeycloakAdmin(fetchImpl)
@@ -158,7 +158,7 @@ describe('keycloak-admin', () => {
         'https://admin.example.test/realms/recharacter/protocol/openid-connect/token',
       )
 
-      const deleteFetch = vi.fn(async () => new Response(null, { status: 204 }))
+      const deleteFetch = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 204 }))
       const admin2 = createKeycloakAdmin(deleteFetch)
       await admin2.deleteUser('abc', 't')
       expect(deleteFetch.mock.calls[0][0]).toBe(
@@ -170,7 +170,7 @@ describe('keycloak-admin', () => {
       process.env.QAVREN_ADMIN_CLIENT_SECRET = SECRET
       resetEnvForTests()
 
-      const fetchImpl = vi.fn(async () =>
+      const fetchImpl = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) =>
         new Response(JSON.stringify({ access_token: 'tok' }), { status: 200 }),
       )
       const admin = createKeycloakAdmin(fetchImpl)
