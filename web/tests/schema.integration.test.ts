@@ -23,6 +23,33 @@ describe('schema invariants', () => {
     expect(await db().select().from(serviceFacts).where(eq(serviceFacts.caseId, c.id))).toEqual([])
   })
 
+  it('service_facts cannot carry an owner_id its case does not have (23503)', async () => {
+    // The drift owner-scoped queries alone cannot prevent: a row whose case_id
+    // is valid and whose owner_id is valid, but which pairs them with each
+    // other. The composite (case_id, owner_id) FK into cases_id_owner_key is
+    // what makes it unrepresentable rather than merely unlikely.
+    const owner = freshOwner()
+    const stranger = freshOwner()
+    const [c] = await db().insert(cases).values({ ownerId: owner }).returning()
+    await expect(
+      db().insert(serviceFacts).values({
+        caseId: c.id, ownerId: stranger, branch: 'Army',
+        dischargeDate: '2015-01-01', characterization: 'OtherThanHonorable',
+      }),
+    ).rejects.toSatisfy((e) => pgCode(e) === '23503')
+  })
+
+  it('drafts cannot carry an owner_id its case does not have (23503)', async () => {
+    const owner = freshOwner()
+    const stranger = freshOwner()
+    const [c] = await db().insert(cases).values({ ownerId: owner }).returning()
+    await expect(
+      db().insert(drafts).values({
+        caseId: c.id, ownerId: stranger, kind: 'personal_statement', content: 'hijacked',
+      }),
+    ).rejects.toSatisfy((e) => pgCode(e) === '23503')
+  })
+
   it('check constraints reject values outside the app enums (23514)', async () => {
     const owner = freshOwner()
     const [c] = await db().insert(cases).values({ ownerId: owner }).returning()

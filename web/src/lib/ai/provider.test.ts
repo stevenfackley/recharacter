@@ -29,11 +29,13 @@ describe('provider key resolution', () => {
   })
 
   test('a corrupted BYOK credential does NOT silently fall back to the managed key', () => {
+    // Pinning the message is the point: a bare toThrow() would also pass if this
+    // threw for having no managed key, which is the opposite of what is asserted.
     expect(() =>
       resolveApiKey({
         encryptedByokKey: 'not-valid-ciphertext', kek: KEK, aad: OWNER, managedKey: 'sk-managed',
       }),
-    ).toThrow()
+    ).toThrow('malformed ciphertext')
   })
 
   test("another owner's ciphertext does NOT resolve to that owner's key", () => {
@@ -44,6 +46,6 @@ describe('provider key resolution', () => {
       resolveApiKey({
         encryptedByokKey: encrypted, kek: KEK, aad: OTHER_OWNER, managedKey: 'sk-managed',
       }),
-    ).toThrow()
+    ).toThrow(/unable to authenticate data/i)
   })
 })

@@ -3,7 +3,7 @@
 // The legal-posture promise (docs/legal-posture.md, "Data sensitivity"), proven
 // end to end against real Postgres, a real object store and a stubbed Keycloak
 // admin: the export shows the veteran everything we hold about them and leaks no
-// ciphertext, and one click removes every row in all TEN owner-scoped tables —
+// ciphertext, and one click removes every row in all ELEVEN owner-scoped tables —
 // including the append-only ai_usage/entitlements ledgers the app role otherwise
 // cannot touch — plus every stored object, while another veteran's identical
 // data is untouched.
@@ -13,12 +13,12 @@
 //     admin client leaves the account whole rather than half-erased;
 //   - the ledger guard is back in force the moment our transaction commits.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { db, freshOwner, pgCode } from './helpers'
 import { closeDb } from '@/db'
 import {
   cases, serviceFacts, caseContext, evidenceItems, nexusAnswers,
-  drafts, aiUsage, aiCredentials, entitlements, pendingCheckouts,
+  drafts, aiUsage, aiAttempts, aiCredentials, entitlements, pendingCheckouts,
 } from '@/db/schema'
 import { MemoryObjectStore } from '@/lib/storage/object-store'
 import { listOwnerDocuments, putCaseDocument } from '@/lib/case-documents'
@@ -40,6 +40,7 @@ async function counts(ownerId: string): Promise<Record<string, number>> {
     nexus_answers: len(await db().select({ id: nexusAnswers.id }).from(nexusAnswers).where(eq(nexusAnswers.ownerId, ownerId))),
     drafts: len(await db().select({ id: drafts.id }).from(drafts).where(eq(drafts.ownerId, ownerId))),
     ai_usage: len(await db().select({ id: aiUsage.id }).from(aiUsage).where(eq(aiUsage.ownerId, ownerId))),
+    ai_attempts: len(await db().select({ id: aiAttempts.id }).from(aiAttempts).where(eq(aiAttempts.ownerId, ownerId))),
     ai_credentials: len(await db().select({ id: aiCredentials.ownerId }).from(aiCredentials).where(eq(aiCredentials.ownerId, ownerId))),
     entitlements: len(await db().select({ id: entitlements.id }).from(entitlements).where(eq(entitlements.ownerId, ownerId))),
     pending_checkouts: len(await db().select({ id: pendingCheckouts.id }).from(pendingCheckouts).where(eq(pendingCheckouts.ownerId, ownerId))),
@@ -48,7 +49,7 @@ async function counts(ownerId: string): Promise<Record<string, number>> {
 
 const ALL_TABLES = [
   'cases', 'service_facts', 'case_context', 'evidence_items', 'nexus_answers',
-  'drafts', 'ai_usage', 'ai_credentials', 'entitlements', 'pending_checkouts',
+  'drafts', 'ai_usage', 'ai_attempts', 'ai_credentials', 'entitlements', 'pending_checkouts',
 ] as const
 
 const everyTable = (n: number) => Object.fromEntries(ALL_TABLES.map((t) => [t, n]))
@@ -66,6 +67,7 @@ async function seed(ownerId: string, store: MemoryObjectStore) {
   await db().insert(nexusAnswers).values({ caseId, ownerId, q1Condition: 'seeded answer' })
   await db().insert(drafts).values({ caseId, ownerId, kind: 'personal_statement', content: 'seeded draft' })
   await db().insert(aiUsage).values({ ownerId, task: 'ping', model: 'test', inputTokens: 1, outputTokens: 1 })
+  await db().insert(aiAttempts).values({ ownerId, task: 'ping' })
   await db().insert(aiCredentials).values({ ownerId, encryptedKey: `SECRET_CIPHERTEXT_${ownerId}` })
   await db().insert(entitlements).values({ ownerId, kind: 'case_unlock', stripeSessionId: `cs_ent_${ownerId}` })
   await db().insert(pendingCheckouts).values({ ownerId, stripeSessionId: `cs_pend_${ownerId}` })
@@ -254,18 +256,42 @@ describe('deleteAccountData after a partial failure', () => {
 })
 
 describe('deleteAccountData verifies the cascade', () => {
+  it('refuses to create the drifted row in the first place', async () => {
+    // service_facts_case_owner_fk is the primary defence: a row whose owner_id
+    // disagrees with its case's owner cannot be written at all, so the survivor
+    // check below now guards a state Postgres will not produce.
+    const grace = freshOwner()
+    const stranger = freshOwner()
+    const [strangerCase] = await db().insert(cases).values({ ownerId: stranger })
+      .returning({ id: cases.id })
+    await expect(db().insert(serviceFacts).values({
+      caseId: strangerCase.id, ownerId: grace, branch: 'Navy',
+      dischargeDate: '2016-08-01', characterization: 'GeneralUnderHonorable',
+    })).rejects.toSatisfy((e) => pgCode(e) === '23503')
+    await db().delete(cases).where(eq(cases.id, strangerCase.id))
+  })
+
   it('rolls back rather than report a row it did not remove', async () => {
     const grace = freshOwner()
     await seed(grace, store)
 
-    // A row carrying Grace's owner_id whose case belongs to someone else: the
-    // FK is valid, so it exists, but the cascade off Grace's case never reaches it.
+    // A row carrying Grace's owner_id whose case belongs to someone else. The
+    // composite foreign key now makes this unrepresentable, so the row is
+    // planted with FK enforcement suppressed for this one transaction —
+    // `session_replication_role = 'replica'` skips the FK triggers on THIS
+    // session only, so no concurrently running suite ever sees the schema
+    // without its guarantee. That is precisely the state the survivor check
+    // exists for: a database that has somehow lost the constraint must still
+    // refuse to report rows as deleted while they are standing.
     const stranger = freshOwner()
     const [strangerCase] = await db().insert(cases).values({ ownerId: stranger })
       .returning({ id: cases.id })
-    await db().insert(serviceFacts).values({
-      caseId: strangerCase.id, ownerId: grace, branch: 'Navy',
-      dischargeDate: '2016-08-01', characterization: 'GeneralUnderHonorable',
+    await db().transaction(async (tx) => {
+      await tx.execute(sql.raw(`SET LOCAL session_replication_role = 'replica'`))
+      await tx.insert(serviceFacts).values({
+        caseId: strangerCase.id, ownerId: grace, branch: 'Navy',
+        dischargeDate: '2016-08-01', characterization: 'GeneralUnderHonorable',
+      })
     })
 
     const admin = stubAdmin()

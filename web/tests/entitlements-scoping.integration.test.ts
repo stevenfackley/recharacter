@@ -55,6 +55,22 @@ describe('grantEntitlement', () => {
     expect(await isEntitled(bob)).toBe(false)
   })
 
+  it("refuses another owner's session id even when the caller is already entitled", async () => {
+    // Bob holds his own unlock, so the insert is stopped by the owner_id unique
+    // and never reaches the stripe_session_id one — the 23505 the test above
+    // relies on cannot fire. Without the explicit lookup this replay would be
+    // logged as a harmless duplicate purchase and return already_entitled.
+    const alice = freshOwner()
+    const bob = freshOwner()
+    expect(await grantEntitlement(alice, 'cs_a1_' + alice)).toBe('granted')
+    expect(await grantEntitlement(bob, 'cs_b1_' + bob)).toBe('granted')
+    await expect(grantEntitlement(bob, 'cs_a1_' + alice))
+      .rejects.toThrow('stripe session belongs to another account')
+    const bobRows = await db().select().from(entitlements).where(eq(entitlements.ownerId, bob))
+    expect(bobRows).toHaveLength(1)
+    expect(bobRows[0].stripeSessionId).toBe('cs_b1_' + bob)
+  })
+
   it('clears the pending checkout it was granted for', async () => {
     const alice = freshOwner()
     const s = session(alice)

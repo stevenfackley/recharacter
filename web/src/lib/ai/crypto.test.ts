@@ -24,20 +24,43 @@ describe('BYOK crypto', () => {
     const ct = encryptSecret('sk-ant-api03-abc123', KEK, OWNER)
     const buf = Buffer.from(ct, 'base64')
     buf[buf.length - 1] ^= 0xff // flip a bit in the auth tag
-    expect(() => decryptSecret(buf.toString('base64'), KEK, OWNER)).toThrow()
+    // The GCM tag check, not a length or parse failure: pin the message so a
+    // future refactor cannot pass this test by throwing earlier for some other
+    // reason.
+    expect(() => decryptSecret(buf.toString('base64'), KEK, OWNER))
+      .toThrow(/unable to authenticate data/i)
   })
 
   test('wrong KEK fails', () => {
     const ct = encryptSecret('sk-ant-api03-abc123', KEK, OWNER)
     const otherKek = Buffer.alloc(32, 1).toString('base64')
-    expect(() => decryptSecret(ct, otherKek, OWNER)).toThrow()
+    expect(() => decryptSecret(ct, otherKek, OWNER)).toThrow(/unable to authenticate data/i)
+  })
+
+  test('a KEK of the wrong size is rejected by name', () => {
+    expect(() => decryptSecret('anything', Buffer.alloc(16).toString('base64'), OWNER))
+      .toThrow('KEK must be 32 bytes (base64-encoded)')
   })
 
   test("a ciphertext cannot be decrypted under another owner's AAD", () => {
     // The key is bound to the owner it was saved for: a credential row read for
     // the wrong owner is unusable rather than a leaked API key.
     const ct = encryptSecret('sk-ant-api03-abc123', KEK, OWNER)
-    expect(() => decryptSecret(ct, KEK, OTHER_OWNER)).toThrow()
-    expect(() => decryptSecret(ct, KEK, '')).toThrow()
+    expect(() => decryptSecret(ct, KEK, OTHER_OWNER)).toThrow(/unable to authenticate data/i)
+    expect(() => decryptSecret(ct, KEK, '')).toThrow(/unable to authenticate data/i)
+  })
+
+  test('a payload too short to hold iv + tag + ciphertext is rejected up front', () => {
+    // Below this length the slices overlap: the "tag" is cut out of the IV and
+    // the ciphertext comes back empty, so Node fails with something about tag
+    // length instead of the truncation that actually happened.
+    const shortest = Buffer.alloc(12 + 16 + 1)
+    expect(() => decryptSecret(shortest.subarray(0, 28).toString('base64'), KEK, OWNER))
+      .toThrow('malformed ciphertext')
+    expect(() => decryptSecret('', KEK, OWNER)).toThrow('malformed ciphertext')
+    expect(() => decryptSecret('not-valid-ciphertext', KEK, OWNER)).toThrow('malformed ciphertext')
+    // One byte more and it is a well-formed shape that fails authentication instead.
+    expect(() => decryptSecret(shortest.toString('base64'), KEK, OWNER))
+      .toThrow(/unable to authenticate data/i)
   })
 })
