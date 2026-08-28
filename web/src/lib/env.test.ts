@@ -7,6 +7,8 @@ const TOUCHED = [
   'QAVREN_ADMIN_CLIENT_SECRET',
   'AI_KEY_ENCRYPTION_SECRET',
   'DATABASE_URL',
+  'AUTH_SECRET',
+  'AUTH_URL',
 ] as const
 const saved: Partial<Record<(typeof TOUCHED)[number], string | undefined>> = {}
 
@@ -60,5 +62,32 @@ describe('env', () => {
   it('accepts a 32-byte base64 KEK', () => {
     process.env.AI_KEY_ENCRYPTION_SECRET = Buffer.alloc(32, 7).toString('base64')
     expect(getEnv().AI_KEY_ENCRYPTION_SECRET).toBeDefined()
+  })
+
+  it('rejects a short AUTH_SECRET by name', () => {
+    // Auth.js reads AUTH_SECRET itself; a weak one would otherwise surface as an
+    // opaque decrypt failure on every request instead of a startup complaint.
+    process.env.AUTH_SECRET = 'too-short'
+    expect(() => getEnv()).toThrow(/AUTH_SECRET/)
+  })
+
+  it('accepts an AUTH_SECRET of at least 32 characters', () => {
+    process.env.AUTH_SECRET = 'x'.repeat(32)
+    expect(getEnv().AUTH_SECRET).toBe('x'.repeat(32))
+  })
+
+  it('leaves AUTH_SECRET and AUTH_URL unset when absent', () => {
+    delete process.env.AUTH_SECRET
+    delete process.env.AUTH_URL
+    const env = getEnv()
+    expect(env.AUTH_SECRET).toBeUndefined()
+    expect(env.AUTH_URL).toBeUndefined()
+  })
+
+  it('rejects an AUTH_URL that is not a url', () => {
+    // Note `localhost:3000` would pass — the URL parser reads it as scheme
+    // `localhost`. Only something with no scheme at all is rejected.
+    process.env.AUTH_URL = 'not a url'
+    expect(() => getEnv()).toThrow(/AUTH_URL/)
   })
 })
