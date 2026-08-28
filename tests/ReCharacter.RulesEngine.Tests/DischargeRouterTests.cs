@@ -182,4 +182,122 @@ public class DischargeRouterTests
         Assert.DoesNotContain(RoutingFlag.PastDrbWindow, result.Flags);
         Assert.False(result.DrbWindowOpen);
     }
+
+    [Fact]
+    public void Route_DishonorableDischarge_FlagUnset_StillTreatedAsGcm_RoutesToBcmr()
+    {
+        // A DD can only be adjudged by a general court-martial (UCMJ Art. 19); the DRB (10 U.S.C.
+        // §1553) cannot review any GCM discharge. This must hold even when the upstream flag is
+        // unset (e.g. DD-214 extraction defaulted it to false) — the characterization alone implies GCM.
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.Army,
+            DischargeDate = new DateOnly(2020, 1, 1), // within 15 years
+            Characterization = DischargeCharacterization.DishonorableDischarge,
+            WasGeneralCourtMartial = false
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.Equal(ReviewBoard.Bcmr, result.RecommendedBoard);
+        Assert.Equal(ApplicationForm.DD149, result.RecommendedForm);
+        Assert.Contains(RoutingFlag.GeneralCourtMartialRequiresBcmr, result.Flags);
+        Assert.DoesNotContain(RoutingFlag.PastDrbWindow, result.Flags);
+        Assert.Equal(new[] { ReviewBoard.Bcmr }, result.AvailableBoards);
+        // The DRB window is technically still open — DD just isn't DRB-reviewable regardless.
+        Assert.True(result.DrbWindowOpen);
+    }
+
+    [Fact]
+    public void Route_DishonorableDischarge_FlagSet_SameResult_NoDuplicateFlags()
+    {
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.Army,
+            DischargeDate = new DateOnly(2020, 1, 1),
+            Characterization = DischargeCharacterization.DishonorableDischarge,
+            WasGeneralCourtMartial = true
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.Equal(ReviewBoard.Bcmr, result.RecommendedBoard);
+        Assert.Equal(ApplicationForm.DD149, result.RecommendedForm);
+        // Same flags as the flag-unset case above (plus the always-paired waiver-likely flag) —
+        // no duplicate GeneralCourtMartialRequiresBcmr from the flag and the characterization both firing.
+        Assert.Equal(
+            new[] { RoutingFlag.GeneralCourtMartialRequiresBcmr, RoutingFlag.BcmrThreeYearStatuteWaiverLikely },
+            result.Flags);
+        Assert.Equal(new[] { ReviewBoard.Bcmr }, result.AvailableBoards);
+    }
+
+    [Fact]
+    public void Route_BadConductDischarge_FlagUnset_WithinWindow_RemainsDrbReviewable()
+    {
+        // A special court-martial can adjudge a BCD (unlike a DD), so absent the GCM flag a BCD
+        // stays DRB-reviewable — only the characterization-implies-GCM rule is DD-specific.
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.Navy,
+            DischargeDate = new DateOnly(2020, 1, 1),
+            Characterization = DischargeCharacterization.BadConductDischarge,
+            WasGeneralCourtMartial = false
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.Equal(ReviewBoard.Drb, result.RecommendedBoard);
+        Assert.Equal(ApplicationForm.DD293, result.RecommendedForm);
+        Assert.Equal(new[] { ReviewBoard.Drb, ReviewBoard.Bcmr }, result.AvailableBoards);
+    }
+
+    [Fact]
+    public void Route_BadConductDischarge_FlagSet_RoutesToBcmr()
+    {
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.Navy,
+            DischargeDate = new DateOnly(2020, 1, 1),
+            Characterization = DischargeCharacterization.BadConductDischarge,
+            WasGeneralCourtMartial = true
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.Equal(ReviewBoard.Bcmr, result.RecommendedBoard);
+        Assert.DoesNotContain(ReviewBoard.Drb, result.AvailableBoards);
+    }
+
+    [Fact]
+    public void Route_SpaceForce_WithinWindow_UsesAfdrbBoardName()
+    {
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.SpaceForce,
+            DischargeDate = new DateOnly(2024, 6, 1),
+            Characterization = DischargeCharacterization.OtherThanHonorable,
+            WasGeneralCourtMartial = false
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.Equal("AFDRB", result.BoardName);
+        Assert.Equal(ReviewBoard.Drb, result.RecommendedBoard);
+    }
+
+    [Fact]
+    public void Route_DischargeDateEqualsToday_DoesNotThrow_DrbOpen()
+    {
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.Army,
+            DischargeDate = new DateOnly(2026, 7, 5),
+            Characterization = DischargeCharacterization.OtherThanHonorable,
+            WasGeneralCourtMartial = false
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.True(result.DrbWindowOpen);
+    }
 }

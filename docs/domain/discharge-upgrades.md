@@ -20,7 +20,7 @@ From best to worst: **Honorable** → **General (Under Honorable Conditions)** �
 | Air Force / Space Force | AFDRB | AFBCMR |
 | Coast Guard | CGDRB | BCMR (DHS) |
 
-Routing logic (implemented in `ReCharacter.RulesEngine`): within 15 years and not a GCM → DRB with DD-293; otherwise → BCMR with DD-149. A special court-martial BCD **is** DRB-reviewable; only *general* court-martial discharges are excluded. **Coast Guard is under DHS, not DoD** — its liberal-consideration policy is analogous but not identical (flagged in the engine; ships last).
+Routing logic (implemented in `ReCharacter.RulesEngine`): within 15 years and not a GCM → DRB with DD-293; otherwise → BCMR with DD-149. A special court-martial BCD **is** DRB-reviewable; only *general* court-martial discharges are excluded. A Dishonorable Discharge is treated as a general-court-martial discharge even if the GCM flag is unset (only a GCM can adjudge a DD). **Coast Guard is under DHS, not DoD** — its liberal-consideration policy is analogous but not identical (flagged in the engine; ships last).
 
 ## Liberal consideration — the product thesis
 
