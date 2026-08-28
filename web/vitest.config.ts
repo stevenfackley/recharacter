@@ -10,6 +10,11 @@ export default defineConfig({
   test: {
     globals: true,
     setupFiles: [],
+    // `next` ships no "exports" map, so `next/server` only resolves by CJS
+    // extension guessing. Vite does that; Node's ESM resolver — which vite-node
+    // uses for externalized dependencies — does not, so `next-auth` importing
+    // `next/server` dies on load. Run these through Vite's resolver instead.
+    server: { deps: { inline: ['next-auth', '@auth/core', '@qavren/auth-next'] } },
     projects: [
       {
         // Component + pure-logic tests under src/ render against jsdom.
