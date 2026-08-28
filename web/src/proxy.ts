@@ -1,24 +1,31 @@
-import { NextResponse, type NextRequest } from 'next/server'
-import { updateSession } from '@/lib/supabase/middleware'
+import { NextResponse } from 'next/server'
+import { auth } from '@/auth'
 
-const PROTECTED = ['/case', '/settings']
+// Exact segment prefixes — `/casework` is not `/case`.
+const PROTECTED = ['/case', '/settings', '/api/ai', '/api/packet', '/api/account']
 
-// Next 16 convention: proxy.ts replaces the deprecated middleware.ts.
-export async function proxy(request: NextRequest) {
-  const { response, user } = await updateSession(request)
+// Next 16 convention: proxy.ts replaces the deprecated middleware.ts, and the
+// file exports exactly one handler — named `proxy` here, which is the form the
+// Next 16 docs show first. `auth()` resolves the session onto `req.auth`.
+export const proxy = auth((req) => {
+  const { pathname, search } = req.nextUrl
+  const needsAuth = PROTECTED.some((p) => pathname === p || pathname.startsWith(p + '/'))
+  if (!needsAuth || req.auth?.user?.id) return NextResponse.next()
 
-  const needsAuth = PROTECTED.some((p) => request.nextUrl.pathname.startsWith(p))
-  if (needsAuth && !user) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
+  // API callers get a status they can act on; a 307 to an HTML login page would
+  // reach them as an unparseable body.
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.json({ error: 'unauthenticated' }, { status: 401 })
   }
 
-  return response
-}
+  const login = new URL('/login', req.nextUrl.origin)
+  login.searchParams.set('next', pathname + search)
+  return NextResponse.redirect(login)
+})
 
 export const config = {
-  // Health checks must not run updateSession — that hits Supabase, which
-  // would tie container liveness to auth-provider reachability.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/health).*)'],
+  // Skip static assets, Auth.js's own routes, the health probe (container
+  // liveness must not depend on the auth provider being reachable), and
+  // anything with a file extension.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/auth|api/health|.*\\..*).*)'],
 }
