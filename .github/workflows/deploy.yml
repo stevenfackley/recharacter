@@ -96,6 +96,14 @@ jobs:
                 printf '\nSUPABASE_SERVICE_ROLE_KEY=%s\n' "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> .env
               fi
             fi
+            # Pin compose to this deploy's images by SHA (immutable, unlike
+            # :latest) — same upsert idiom as the service-role key above, so
+            # `IMAGE_TAG=<sha> docker compose up -d` can roll back on the box.
+            if grep -q '^IMAGE_TAG=' .env 2>/dev/null; then
+              sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${{ github.sha }}|" .env
+            else
+              printf '\nIMAGE_TAG=%s\n' "${{ github.sha }}" >> .env
+            fi
             docker compose pull
             docker compose up -d
             docker image prune -f

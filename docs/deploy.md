@@ -54,8 +54,14 @@ keys), `APP_BASE_URL=https://recharacter.us`, `TUNNEL_TOKEN` (step 2).
 
 ## Every deploy after that
 
-Push to `main` (or run the Deploy workflow manually) → both images build → GHCR → SSH pull +
-`docker compose up -d`. Zero-downtime-ish (containers restart in seconds; cloudflared reconnects).
+Push to `main` (or run the Deploy workflow manually) → both images build → GHCR, tagged
+`:latest` and `:${{ github.sha }}` → SSH: upsert `IMAGE_TAG=<sha>` into the box `.env` → pull +
+`docker compose up -d`. `docker-compose.yml` pins both app images to `${IMAGE_TAG:-latest}`, so
+every deploy runs an immutable, known SHA rather than whatever `:latest` happened to resolve to
+at pull time. Zero-downtime-ish (containers restart in seconds; cloudflared reconnects).
+
+**Rollback:** SSH to the box and run `IMAGE_TAG=<sha> docker compose up -d` with the SHA of the
+last-known-good deploy (find it in the Deploy workflow run history or `git log`).
 
 ## Post-deploy smoke checklist
 - `https://recharacter.us` renders the landing page (Cloudflare TLS).
