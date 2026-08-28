@@ -2,13 +2,11 @@ import { config } from 'dotenv'
 import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { getDb, type Db } from '@/db'
-import { MemoryObjectStore } from '@/lib/storage/object-store'
 
 config({ path: '.env.local' })
 
 export const db = () => getDb()
 export const freshOwner = () => randomUUID()
-export const memoryStore = () => new MemoryObjectStore()
 
 /** Postgres error code of a thrown drizzle/postgres-js error, else undefined. */
 export function pgCode(err: unknown): string | undefined {
