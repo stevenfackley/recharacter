@@ -85,7 +85,7 @@ Dropped: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_
 - [ ] `cd web && npm install @qavren/auth-next@^0.1.2 next-auth@5.0.0-beta.32 drizzle-orm@^0.45.2 postgres@^3.4.9 @aws-sdk/client-s3@^3.1120.0 && npm install -D drizzle-kit@^0.31.10 tsx@^4`
 - [ ] `npm uninstall @supabase/ssr @supabase/supabase-js`
 - [ ] Add scripts: `"db:generate": "drizzle-kit generate"`, `"db:migrate": "tsx scripts/migrate.ts"`, `"test:integration": "vitest run tests"`.
-- [ ] `vitest.config.ts`: add `environmentMatchGlobs: [['tests/**', 'node']]` (F21) — integration suites need real `Blob`/`FormData`/sockets.
+- [ ] `vitest.config.ts`: split into `test.projects` — `unit` (`src/**/*.test.{ts,tsx}`, jsdom) and `integration` (`tests/**/*.test.ts`, node) (F21; Vitest 4 dropped `environmentMatchGlobs`).
 - [ ] Commit: `chore(web): swap supabase for auth-next, drizzle, s3 client`
 
 ---

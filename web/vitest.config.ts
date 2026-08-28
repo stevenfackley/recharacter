@@ -4,12 +4,23 @@ import path from 'node:path'
 
 export default defineConfig({
   plugins: [react()],
-  test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: [],
-  },
   resolve: {
     alias: { '@': path.resolve(__dirname, 'src') },
+  },
+  test: {
+    globals: true,
+    setupFiles: [],
+    projects: [
+      {
+        // Component + pure-logic tests under src/ render against jsdom.
+        extends: true,
+        test: { name: 'unit', include: ['src/**/*.test.{ts,tsx}'], environment: 'jsdom' },
+      },
+      {
+        // Integration suites talk to Postgres/S3 and need real Blob/FormData/sockets.
+        extends: true,
+        test: { name: 'integration', include: ['tests/**/*.test.ts'], environment: 'node' },
+      },
+    ],
   },
 })
