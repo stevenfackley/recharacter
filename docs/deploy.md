@@ -16,7 +16,7 @@ Internet ──TLS──> Cloudflare (DNS+proxy) ──tunnel──> cloudflared
 
 ### 1. Supabase (blocked on billing as of 2026-07-06 — settle org invoices first)
 1. Settle overdue invoices: supabase.com → Steve's Database Org → Billing.
-2. Project creation, all 7 migrations, and auth config (Site URL `https://recharacter.us`,
+2. Project creation, all 8 migrations, and auth config (Site URL `https://recharacter.us`,
    redirect URLs) are then done by Claude via the Supabase MCP — say the word.
 3. Copy Project URL + anon key into the box `.env`.
 
