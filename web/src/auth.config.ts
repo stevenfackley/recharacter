@@ -1,19 +1,9 @@
 import type { NextAuthConfig, Session } from 'next-auth'
 import { buildAuthConfig } from '@qavren/auth-next'
 
-declare module 'next-auth' {
-  interface Session {
-    /**
-     * Keycloak ID token, kept ONLY to pass `id_token_hint` on RP-initiated
-     * logout. Server-side use only — never hand a session object to a client
-     * component.
-     */
-    idToken?: string
-  }
-}
-
-// `process.env` directly, not `getEnv()`: proxy.ts pulls this module into the
-// edge runtime, where env.ts's Buffer-based validation has no business running.
+// `process.env` directly, not `getEnv()`: proxy.ts pulls this module in, and
+// keeping its import graph free of the DB client (which env.ts leads to) is the
+// point. Both values have safe defaults, so there is nothing to validate here.
 const realm = process.env.QAVREN_REALM || 'recharacter'
 const baseUrl = process.env.QAVREN_AUTH_URL || 'https://auth.recharacter.us'
 
@@ -41,9 +31,15 @@ export const authConfig: NextAuthConfig = {
   callbacks: {
     ...base.callbacks,
     async jwt(params) {
-      const token = (await base.callbacks!.jwt!(params)) ?? params.token
-      // Only present on the sign-in call; later invocations carry it forward on
-      // the existing token.
+      const token = await base.callbacks!.jwt!(params)
+      // A null return means "destroy this session". Falling back to the incoming
+      // token here would resurrect the session the SDK just refused.
+      if (token === null) return null
+      // The Keycloak ID token, needed only as `id_token_hint` on RP-initiated
+      // logout. It stays on the JWT — an encrypted, httpOnly cookie the browser
+      // cannot read — and is deliberately NOT copied onto the session object,
+      // which Auth.js serves verbatim at GET /api/auth/session. The sign-out
+      // route reads it back with `getToken`.
       if (params.account?.id_token) token.idToken = params.account.id_token
       return token
     },
@@ -56,7 +52,6 @@ export const authConfig: NextAuthConfig = {
       // `session.user.id` is the Keycloak `sub` — it becomes `owner_id`
       // everywhere in the app, so it must never fall back to email or name.
       if (session.user && params.token.sub) session.user.id = params.token.sub
-      session.idToken = typeof params.token.idToken === 'string' ? params.token.idToken : undefined
       return session
     },
   },

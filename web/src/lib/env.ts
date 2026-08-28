@@ -32,6 +32,11 @@ const schema = z.object({
   QAVREN_REALM: z.string().min(1).default('recharacter'),
   QAVREN_ADMIN_CLIENT_ID: z.string().min(1).default('recharacter-admin-svc'),
   QAVREN_ADMIN_CLIENT_SECRET: z.string().min(1).optional(),
+  // Read by Auth.js itself, not by us — listed so the schema documents the full
+  // environment and a too-short secret fails by name rather than as an opaque
+  // decrypt error on every request.
+  AUTH_SECRET: z.string().min(32).optional(),
+  AUTH_URL: z.string().url().optional(),
   KEYCLOAK_ADMIN_BASE_URL: z.string().url().optional(),
   APP_BASE_URL: z.string().url().default('http://localhost:3000'),
   // Object storage: Cloudflare R2 in prod, MinIO via S3_ENDPOINT locally/CI.
