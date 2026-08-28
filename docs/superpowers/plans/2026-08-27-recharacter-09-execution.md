@@ -1186,7 +1186,7 @@ Content requirements:
 ### Task 11: Gate and PR
 
 - [ ] `cd web && npm run lint && npx tsc --noEmit && npm run build && npx vitest run` — all green with `compose.dev.yaml` up.
-- [ ] `pwsh C:\Users\steve\projects\qavren-db\tools\preflight-app.ps1 -RepoPath C:\Users\steve\projects\recharacter` → `READY`.
+- [x] `pwsh C:\Users\steve\projects\qavren-db\tools\preflight-app.ps1 -RepoPath C:\Users\steve\projects\recharacter` → `READY -- no blocking coupling in source` (2026-08-27; the remaining hits are historic plan docs, classified `docs`).
 - [x] Real-platform rehearsal DONE 2026-08-27: `provision-app.ps1 -App recharacter -Env test -Apply -RotatePassword`, then `npm run db:migrate` over the session pooler (`aws-1-us-east-1.pooler.supabase.com:5432`, `?sslmode=require`) as the app role → `migrations applied` / `already up to date`; `npx vitest run tests` over the transaction pooler (`:6543`) → 8 files, 72 passed, 4 skipped (S3 suite; no MinIO). Credentials discarded; the test role now holds a rotated password nobody stored — rotate again if a test deployment ever needs it.
 - [ ] Adversarial review (opus `superpowers:code-reviewer`) of the full diff against the invariants in Task 6; fix; re-run.
 - [ ] `gh pr create --base main --title "feat: re-platform onto qavren-auth, qavren-db and R2 (Plan 09 A–D, G)"` — body: what changed, the cutover runbook, the Steve-only steps, follow-ups. Do not merge.
