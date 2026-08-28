@@ -19,3 +19,6 @@ obj/
 Thumbs.db
 .vs/
 .idea/
+
+# Claude Code agent worktree scaffolding
+.claude/

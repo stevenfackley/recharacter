@@ -16,7 +16,7 @@ Internet ──TLS──> Cloudflare (DNS+proxy) ──tunnel──> cloudflared
 
 ### 1. Supabase (blocked on billing as of 2026-07-06 — settle org invoices first)
 1. Settle overdue invoices: supabase.com → Steve's Database Org → Billing.
-2. Project creation, all 7 migrations, and auth config (Site URL `https://recharacter.us`,
+2. Project creation, all 8 migrations, and auth config (Site URL `https://recharacter.us`,
    redirect URLs) are then done by Claude via the Supabase MCP — say the word.
 3. Copy Project URL + anon key into the box `.env`.
 
@@ -54,8 +54,14 @@ keys), `APP_BASE_URL=https://recharacter.us`, `TUNNEL_TOKEN` (step 2).
 
 ## Every deploy after that
 
-Push to `main` (or run the Deploy workflow manually) → both images build → GHCR → SSH pull +
-`docker compose up -d`. Zero-downtime-ish (containers restart in seconds; cloudflared reconnects).
+Push to `main` (or run the Deploy workflow manually) → both images build → GHCR, tagged
+`:latest` and `:${{ github.sha }}` → SSH: upsert `IMAGE_TAG=<sha>` into the box `.env` → pull +
+`docker compose up -d`. `docker-compose.yml` pins both app images to `${IMAGE_TAG:-latest}`, so
+every deploy runs an immutable, known SHA rather than whatever `:latest` happened to resolve to
+at pull time. Zero-downtime-ish (containers restart in seconds; cloudflared reconnects).
+
+**Rollback:** SSH to the box and run `IMAGE_TAG=<sha> docker compose up -d` with the SHA of the
+last-known-good deploy (find it in the Deploy workflow run history or `git log`).
 
 ## Post-deploy smoke checklist
 - `https://recharacter.us` renders the landing page (Cloudflare TLS).

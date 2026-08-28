@@ -18,5 +18,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  // Health checks must not run updateSession — that hits Supabase, which
+  // would tie container liveness to auth-provider reachability.
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|api/health).*)'],
 }

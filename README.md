@@ -10,7 +10,7 @@ ReCharacter walks a veteran through building a **mental-health-based discharge-u
 
 | Plan | Scope | Status |
 |------|-------|--------|
-| 01 | Rules engine + routing API (.NET) | ✅ Merged — 22 tests |
+| 01 | Rules engine + routing API (.NET) | ✅ Merged — 24 tests |
 | 02 | Auth & persistence (Next.js + Supabase RLS) | ✅ Built — 7 tests, in review |
 | 03 | AI gateway (managed proxy + BYOK) | 📝 Drafted |
 | 04–08 | Intake/extraction · Evidence/coaching · Nexus/draft · Packet export · Billing | Roadmap |

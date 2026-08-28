@@ -11,6 +11,21 @@ public class RouteEndpointTests(WebApplicationFactory<Program> factory)
     : IClassFixture<WebApplicationFactory<Program>>
 {
     [Fact]
+    public async Task Get_Healthz_ReturnsOk()
+    {
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/healthz");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+
+        Assert.Equal("ok", doc.RootElement.GetProperty("status").GetString());
+    }
+
+    [Fact]
     public async Task Post_Route_MarineOthWithinWindow_ReturnsDrbDd293()
     {
         var client = factory.CreateClient();
