@@ -140,11 +140,17 @@ CREATE INDEX "nexus_answers_owner_idx" ON "recharacter"."nexus_answers" USING bt
 CREATE INDEX "pending_checkouts_owner_idx" ON "recharacter"."pending_checkouts" USING btree ("owner_id");--> statement-breakpoint
 CREATE INDEX "service_facts_owner_idx" ON "recharacter"."service_facts" USING btree ("owner_id");
 --> statement-breakpoint
+-- Defence in depth against application bugs, NOT a security boundary: one role
+-- owns this schema, and an owner can ALTER TABLE ... DISABLE TRIGGER or replace
+-- this function. It stops a stray UPDATE/DELETE/TRUNCATE in app code from
+-- rewriting billing or usage history; it does not contain an attacker who
+-- already has the app role's credentials.
 CREATE OR REPLACE FUNCTION "recharacter"."ledger_guard"() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   -- Account deletion is the ONLY sanctioned delete; it runs inside a transaction
-  -- that sets this GUC (SET LOCAL). Everything else is refused as 42501 so the
-  -- app role cannot rewrite billing or usage history.
+  -- that sets this GUC (SET LOCAL). Everything else — including TRUNCATE, which
+  -- reaches this function with TG_OP = 'TRUNCATE' and falls through — is refused
+  -- as 42501.
   IF TG_OP = 'DELETE' AND current_setting('recharacter.allow_ledger_delete', true) = 'on' THEN
     RETURN OLD;
   END IF;
@@ -154,3 +160,9 @@ END $$;
 CREATE TRIGGER "ai_usage_ledger_guard" BEFORE UPDATE OR DELETE ON "recharacter"."ai_usage" FOR EACH ROW EXECUTE FUNCTION "recharacter"."ledger_guard"();
 --> statement-breakpoint
 CREATE TRIGGER "entitlements_ledger_guard" BEFORE UPDATE OR DELETE ON "recharacter"."entitlements" FOR EACH ROW EXECUTE FUNCTION "recharacter"."ledger_guard"();
+--> statement-breakpoint
+-- TRUNCATE bypasses row-level triggers entirely, so it needs its own
+-- statement-level trigger on each ledger.
+CREATE TRIGGER "ai_usage_ledger_guard_truncate" BEFORE TRUNCATE ON "recharacter"."ai_usage" FOR EACH STATEMENT EXECUTE FUNCTION "recharacter"."ledger_guard"();
+--> statement-breakpoint
+CREATE TRIGGER "entitlements_ledger_guard_truncate" BEFORE TRUNCATE ON "recharacter"."entitlements" FOR EACH STATEMENT EXECUTE FUNCTION "recharacter"."ledger_guard"();

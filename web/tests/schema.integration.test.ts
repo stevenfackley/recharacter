@@ -1,8 +1,8 @@
 import { describe, it, expect, afterAll } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { db, freshOwner, pgCode, allowLedgerDelete } from './helpers'
 import { closeDb } from '@/db'
-import { cases, serviceFacts, aiUsage, entitlements } from '@/db/schema'
+import { cases, serviceFacts, aiUsage, entitlements, evidenceItems, drafts } from '@/db/schema'
 
 afterAll(closeDb)
 
@@ -38,14 +38,44 @@ describe('schema invariants', () => {
     expect(after.updatedAt.getTime()).toBeGreaterThan(c.updatedAt.getTime())
   })
 
+  it('evidence_items is unique per (case, item_type) (23505)', async () => {
+    const owner = freshOwner()
+    const [c] = await db().insert(cases).values({ ownerId: owner }).returning()
+    const row = { caseId: c.id, ownerId: owner, itemType: 'dd214' }
+    await db().insert(evidenceItems).values(row)
+    await expect(db().insert(evidenceItems).values(row)).rejects.toSatisfy((e) => pgCode(e) === '23505')
+  })
+
+  it('drafts rejects a kind outside the app enum (23514)', async () => {
+    const owner = freshOwner()
+    const [c] = await db().insert(cases).values({ ownerId: owner }).returning()
+    await expect(db().insert(drafts).values({ caseId: c.id, ownerId: owner, kind: 'memoir', content: 'x' }))
+      .rejects.toSatisfy((e) => pgCode(e) === '23514')
+  })
+
+  it('a stripe_session_id cannot be claimed by two owners (23505)', async () => {
+    const session = `cs_${freshOwner()}`
+    await db().insert(entitlements).values({ ownerId: freshOwner(), stripeSessionId: session })
+    await expect(db().insert(entitlements).values({ ownerId: freshOwner(), stripeSessionId: session }))
+      .rejects.toSatisfy((e) => pgCode(e) === '23505')
+  })
+
   it('ai_usage and entitlements refuse UPDATE/DELETE with 42501 outside account deletion', async () => {
     const owner = freshOwner()
     await db().insert(aiUsage).values({ ownerId: owner, task: 'ping', model: 'm', inputTokens: 1, outputTokens: 1 })
     await db().insert(entitlements).values({ ownerId: owner, stripeSessionId: `cs_${owner}` })
     await expect(db().update(aiUsage).set({ inputTokens: 0 }).where(eq(aiUsage.ownerId, owner))).rejects.toSatisfy((e) => pgCode(e) === '42501')
+    await expect(db().update(entitlements).set({ kind: 'case_unlock' }).where(eq(entitlements.ownerId, owner))).rejects.toSatisfy((e) => pgCode(e) === '42501')
     await expect(db().delete(aiUsage).where(eq(aiUsage.ownerId, owner))).rejects.toSatisfy((e) => pgCode(e) === '42501')
     await expect(db().delete(entitlements).where(eq(entitlements.ownerId, owner))).rejects.toSatisfy((e) => pgCode(e) === '42501')
     expect((await db().select().from(aiUsage).where(eq(aiUsage.ownerId, owner))).length).toBe(1)
+  })
+
+  it('TRUNCATE of either ledger is refused with 42501', async () => {
+    // TRUNCATE skips row-level triggers, so this exercises the statement-level
+    // guards rather than the ones the UPDATE/DELETE test covers.
+    await expect(db().execute(sql.raw('truncate recharacter.ai_usage'))).rejects.toSatisfy((e) => pgCode(e) === '42501')
+    await expect(db().execute(sql.raw('truncate recharacter.entitlements'))).rejects.toSatisfy((e) => pgCode(e) === '42501')
   })
 
   it('the account-deletion transaction may delete from the ledgers', async () => {
