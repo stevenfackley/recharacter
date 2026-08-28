@@ -25,6 +25,14 @@ const nextConfig: NextConfig = {
       bodySizeLimit: '16mb',
     },
   },
+  // The packet route reads Noto Serif TTFs at module load via
+  // fs.readFileSync (see web/src/lib/packet/render.ts) rather than
+  // `import`ing them, so Next's file tracer doesn't discover them on its
+  // own — without this, `.next/standalone` ships without the fonts and the
+  // route 500s in production even though it works in `next dev`.
+  outputFileTracingIncludes: {
+    '/api/packet': ['./src/lib/packet/fonts/**/*'],
+  },
 };
 
 export default nextConfig;
