@@ -119,6 +119,9 @@ jobs:
               printf '\nIMAGE_TAG=%s\n' "${{ github.sha }}" >> .env
             fi
             docker compose pull
-            docker compose up -d
+            # --wait blocks until the web/routing healthchecks pass; with set -e a
+            # failure aborts BEFORE the prune, so the previous image stays on the
+            # box for `IMAGE_TAG=<previous sha> docker compose up -d`.
+            docker compose up -d --wait --wait-timeout 180
             docker image prune -f
             docker logout ghcr.io
