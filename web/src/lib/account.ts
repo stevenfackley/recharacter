@@ -6,7 +6,7 @@ import {
 } from '@/db/schema'
 import type { ObjectStore } from '@/lib/storage/object-store'
 import { listOwnerDocuments, removeOwnerDocuments } from '@/lib/case-documents'
-import { createKeycloakAdmin, KeycloakAdminUnavailable, type KeycloakAdmin } from '@/lib/keycloak-admin'
+import { createKeycloakAdmin, type KeycloakAdmin } from '@/lib/keycloak-admin'
 
 /**
  * The one-click data export/delete promised by docs/legal-posture.md ("Data
@@ -105,8 +105,8 @@ export async function collectExport(ownerId: string, store: ObjectStore): Promis
 
 /** Deletion cannot even be attempted: the Keycloak service account is unusable. */
 export class DeletionUnavailableError extends Error {
-  constructor(message = 'account deletion is unavailable') {
-    super(message)
+  constructor(message = 'account deletion is unavailable', options?: ErrorOptions) {
+    super(message, options)
     this.name = 'DeletionUnavailableError'
   }
 }
@@ -125,6 +125,16 @@ export type DeletionReceipt = { rowsByTable: Record<string, number>; objects: nu
  * trusting the delete call. The identity is destroyed last, once nothing it
  * owns is left behind.
  *
+ * Once that transaction commits there are two residual states a later failure
+ * can leave, and both are deliberately retryable:
+ *   - rows gone, objects and identity remain (the sweep threw);
+ *   - rows and objects gone, only the identity remains (deleteUser threw).
+ * Calling this again from either state converges: the sweep is driven by the
+ * owner's prefix, not by a manifest, so it removes whatever is actually there;
+ * the transaction deletes zero rows and reports zeroes; and Keycloak treats a
+ * missing user as already deleted. The receipt's counts are therefore "what
+ * this call removed", not "what the account ever held".
+ *
  * Only counts are logged. Nothing in these rows is safe to put in a log line.
  */
 export async function deleteAccountData(
@@ -135,8 +145,13 @@ export async function deleteAccountData(
   try {
     admin = deps.admin ?? createKeycloakAdmin()
   } catch (err) {
-    if (err instanceof KeycloakAdminUnavailable) throw new DeletionUnavailableError(err.message)
-    throw err
+    // Any failure to build the admin client — a missing secret, but also an
+    // invalid environment from getEnv() — means deletion cannot start. They are
+    // the same thing to the caller: nothing was removed.
+    throw new DeletionUnavailableError(
+      err instanceof Error ? err.message : String(err),
+      { cause: err },
+    )
   }
 
   // Throws on bad or missing credentials, with nothing deleted yet.
@@ -174,6 +189,25 @@ export async function deleteAccountData(
     counted.cases = (await tx.delete(cases).where(eq(cases.ownerId, ownerId))
       .returning({ id: cases.id })).length
 
+    // The cascade follows case_id, not owner_id. A row carrying this owner_id
+    // but pointing at someone else's case would survive it, and the counts
+    // above — taken before the delete — would report it as removed. Re-read the
+    // five tables and refuse to commit if anything of theirs is still standing.
+    const survivors: string[] = []
+    if ((await tx.select({ id: serviceFacts.id }).from(serviceFacts)
+      .where(eq(serviceFacts.ownerId, ownerId))).length) survivors.push('service_facts')
+    if ((await tx.select({ id: caseContext.id }).from(caseContext)
+      .where(eq(caseContext.ownerId, ownerId))).length) survivors.push('case_context')
+    if ((await tx.select({ id: evidenceItems.id }).from(evidenceItems)
+      .where(eq(evidenceItems.ownerId, ownerId))).length) survivors.push('evidence_items')
+    if ((await tx.select({ id: nexusAnswers.id }).from(nexusAnswers)
+      .where(eq(nexusAnswers.ownerId, ownerId))).length) survivors.push('nexus_answers')
+    if ((await tx.select({ id: drafts.id }).from(drafts)
+      .where(eq(drafts.ownerId, ownerId))).length) survivors.push('drafts')
+    if (survivors.length) {
+      throw new Error(`rows survived the case cascade in ${survivors.join(', ')}; deletion rolled back`)
+    }
+
     return counted
   })
 
@@ -181,6 +215,8 @@ export async function deleteAccountData(
 
   await admin.deleteUser(ownerId, token)
 
-  console.info('account deleted', { ownerId, rowsByTable, objects })
+  // No owner id: the account it named no longer exists, so keeping it here only
+  // leaves a dangling identifier in the logs of a "delete everything" feature.
+  console.info('account deleted', { rowsByTable, objects })
   return { rowsByTable, objects }
 }
