@@ -19,4 +19,12 @@ public class BoardDirectoryTests
         Assert.Equal(drb, names.DrbName);
         Assert.Equal(bcmr, names.BcmrName);
     }
+
+    [Fact]
+    public void For_EveryDefinedBranch_DoesNotThrow()
+    {
+        // Guards against a new Branch enum member being added without a BoardDirectory mapping.
+        foreach (var branch in Enum.GetValues<Branch>())
+            BoardDirectory.For(branch);
+    }
 }
