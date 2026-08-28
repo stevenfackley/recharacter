@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: 'Sign in' }
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; next?: string }>
+  searchParams: Promise<{ error?: string; next?: string; deleted?: string }>
 }) {
   const params = await searchParams
   // Only our own closed set of codes is ever rendered — never `params.error`
@@ -19,6 +19,11 @@ export default async function LoginPage({
     <main>
       <h1>Sign in</h1>
       {message && <p role="alert">{message}</p>}
+      {params.deleted === '1' && (
+        <p role="status">
+          Your account and everything in it were deleted. Nothing of yours remains here.
+        </p>
+      )}
       <p>
         Sign-in happens on the ReCharacter sign-in service at{' '}
         <strong>auth.recharacter.us</strong>. The address bar will change to that

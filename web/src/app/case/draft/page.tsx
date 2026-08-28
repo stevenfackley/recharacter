@@ -1,13 +1,31 @@
 import Link from 'next/link'
+import type { Metadata } from 'next'
+import { requireSessionUser } from '@/lib/session'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
 import { getCaseContext } from '@/lib/context'
 import { getNexusAnswers, answersComplete } from '@/lib/nexus'
 import { getDraft } from '@/lib/drafts'
 import { saveDraft, generateStatement, generateCoverLetter } from './actions'
-import type { Metadata } from 'next'
 
 export const metadata: Metadata = { title: 'Your drafts' }
+
+/**
+ * The closed set of failures this page will name. Only these codes resolve to
+ * copy — `params.error` is never rendered. A rejected BYOK key is deliberately
+ * its own code: a retry can never fix it, so its copy must not offer one.
+ */
+const ERRORS = {
+  save_failed: 'Could not save your draft — try again shortly.',
+  generate_failed: 'Could not generate that right now — try again shortly.',
+  byok_key_rejected:
+    'Your AI provider rejected your API key — check it in AI settings, then generate again.',
+  rate_limited: 'Too many AI requests just now — wait a minute, then generate again.',
+  payment_required: 'Drafting needs the case unlock or your own API key.',
+  ai_unavailable: 'Drafting needs an AI key — you can also write this document directly below.',
+  routing_unavailable: 'The routing service is unavailable right now — try again shortly.',
+  draft_too_long: 'Draft too long (50,000 characters max).',
+} as const
 
 export default async function DraftPage({
   searchParams,
@@ -15,16 +33,18 @@ export default async function DraftPage({
   searchParams: Promise<Record<string, string | undefined>>
 }) {
   const params = await searchParams
-  const c = await getOrCreateCase()
-  const facts = await getServiceFacts(c.id)
-  const answers = await getNexusAnswers(c.id)
-  const ctx = await getCaseContext(c.id)
+  const user = await requireSessionUser('/case/draft')
+  const c = await getOrCreateCase(user.id)
+  const facts = await getServiceFacts(user.id, c.id)
+  const answers = await getNexusAnswers(user.id, c.id)
+  const ctx = await getCaseContext(user.id, c.id)
 
+  const error = ERRORS[params.error as keyof typeof ERRORS] ?? null
   const factsConfirmed = facts?.confirmed ?? false
   const nexusComplete = answers ? answersComplete(answers) : false
 
-  const statement = await getDraft(c.id, 'personal_statement')
-  const coverLetter = await getDraft(c.id, 'cover_letter')
+  const statement = await getDraft(user.id, c.id, 'personal_statement')
+  const coverLetter = await getDraft(user.id, c.id, 'cover_letter')
 
   const canGenerateStatement = factsConfirmed && nexusComplete
   const canGenerateCoverLetter = factsConfirmed && ctx !== null
@@ -32,7 +52,7 @@ export default async function DraftPage({
   return (
     <main>
       <h1>Your drafts</h1>
-      {params.error && <p role="alert">{params.error}</p>}
+      {error && <p role="alert">{error}</p>}
       <p>
         These are drafts you own. Read every word; change anything that isn&apos;t right.
         Nothing is filed until you file it.

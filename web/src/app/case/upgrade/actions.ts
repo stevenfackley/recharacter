@@ -3,43 +3,49 @@
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import Stripe from 'stripe'
-import { createClient } from '@/lib/supabase/server'
-import { recordPendingCheckout, grantEntitlement } from '@/lib/billing'
+import { getSessionUser, requireSessionUser } from '@/lib/session'
+import { getEnv } from '@/lib/env'
+import {
+  recordPendingCheckout, grantEntitlement, listPendingCheckouts,
+} from '@/lib/billing'
 
-const UNCONFIGURED_ERROR = 'Payments are not yet configured — you can still unlock with your own API key'
+/**
+ * A single restore must not fan out into an unbounded number of Stripe
+ * round-trips: one veteran with a long history of abandoned checkouts would turn
+ * one button press into dozens of API calls. Five is well past any honest case.
+ */
+const MAX_RESTORE_SESSIONS = 5
 
 /** Null when Stripe isn't configured — the friendly "not yet configured" path, never a crash. */
 function getStripeClient(): Stripe | null {
-  const key = process.env.STRIPE_SECRET_KEY
+  const key = getEnv().STRIPE_SECRET_KEY
   if (!key) return null
   return new Stripe(key)
 }
 
 /** Starts hosted Stripe Checkout for the one-time case unlock. */
 export async function startCheckout() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const user = await requireSessionUser('/case/upgrade')
 
   const stripe = getStripeClient()
-  const priceId = process.env.STRIPE_PRICE_ID
-  const baseUrl = process.env.APP_BASE_URL
-  if (!stripe || !priceId || !baseUrl) {
-    redirect('/case/upgrade?error=' + encodeURIComponent(UNCONFIGURED_ERROR))
+  const env = getEnv()
+  const priceId = env.STRIPE_PRICE_ID
+  if (!stripe || !priceId) {
+    redirect('/case/upgrade?error=not_configured')
   }
 
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
     line_items: [{ price: priceId, quantity: 1 }],
     client_reference_id: user.id,
-    success_url: `${baseUrl}/case/upgrade?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${baseUrl}/case/upgrade?canceled=1`,
+    success_url: `${env.APP_BASE_URL}/case/upgrade?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${env.APP_BASE_URL}/case/upgrade?canceled=1`,
   })
 
-  await recordPendingCheckout(session.id)
+  await recordPendingCheckout(user.id, session.id)
 
   if (!session.url) {
-    redirect('/case/upgrade?error=' + encodeURIComponent('Could not start checkout — try again shortly'))
+    redirect('/case/upgrade?error=checkout_failed')
   }
   redirect(session.url)
 }
@@ -51,8 +57,7 @@ export async function startCheckout() {
  * server log could be replayed by a different signed-in user to self-grant.
  */
 export async function verifySession(sessionId: string): Promise<boolean> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSessionUser()
   if (!user) return false
 
   const stripe = getStripeClient()
@@ -71,22 +76,29 @@ export async function verifySession(sessionId: string): Promise<boolean> {
   if (session.payment_status !== 'paid') return false
   if (session.client_reference_id !== user.id) return false
 
-  await grantEntitlement(sessionId)
+  try {
+    // 'already_entitled' is success: a redelivered success redirect must not
+    // read as a failed purchase to the veteran who already paid.
+    await grantEntitlement(user.id, sessionId)
+  } catch (err) {
+    // The one failure grantEntitlement refuses to swallow is a session id that
+    // belongs to a DIFFERENT owner. Fail closed.
+    console.error('verifySession: entitlement grant failed', err)
+    return false
+  }
   return true
 }
 
 /** Recovers a paid unlock if the success redirect never happened. */
 export async function restorePurchase(): Promise<{ granted: boolean }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSessionUser()
   if (!user) return { granted: false }
 
-  const { data: pending } = await supabase
-    .from('pending_checkouts').select('stripe_session_id').eq('owner_id', user.id)
+  const pending = (await listPendingCheckouts(user.id)).slice(0, MAX_RESTORE_SESSIONS)
 
   let granted = false
-  for (const row of pending ?? []) {
-    if (await verifySession(row.stripe_session_id as string)) granted = true
+  for (const sessionId of pending) {
+    if (await verifySession(sessionId)) granted = true
   }
   if (granted) revalidatePath('/case/upgrade')
   return { granted }

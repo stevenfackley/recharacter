@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { requireSessionUser } from '@/lib/session'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
 import { getNexusAnswers, KURTA_QUESTIONS, answersComplete } from '@/lib/nexus'
@@ -8,9 +9,10 @@ import { NexusQuestion } from './question'
 export const metadata: Metadata = { title: 'The four questions' }
 
 export default async function NexusPage() {
-  const c = await getOrCreateCase()
-  const facts = await getServiceFacts(c.id)
-  const answers = await getNexusAnswers(c.id)
+  const user = await requireSessionUser('/case/nexus')
+  const c = await getOrCreateCase(user.id)
+  const facts = await getServiceFacts(user.id, c.id)
+  const answers = await getNexusAnswers(user.id, c.id)
 
   const filledCount = KURTA_QUESTIONS.filter(
     (q) => (answers?.[q.column] ?? '').trim().length > 0,

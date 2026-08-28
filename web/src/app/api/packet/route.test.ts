@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-const mockGetUser = vi.fn()
-const mockFrom = vi.fn()
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: async () => ({
-    auth: { getUser: mockGetUser },
-    from: mockFrom,
-  }),
+const mockGetSessionUser = vi.fn()
+vi.mock('@/lib/session', () => ({
+  getSessionUser: () => mockGetSessionUser(),
+}))
+
+const mockIsEntitled = vi.fn()
+vi.mock('@/lib/billing', () => ({
+  isEntitled: (...args: unknown[]) => mockIsEntitled(...args),
 }))
 
 const mockGetOrCreateCase = vi.fn()
@@ -29,6 +30,11 @@ vi.mock('@/lib/drafts', () => ({
   getDraft: (...args: unknown[]) => mockGetDraft(...args),
 }))
 
+const mockGetEvidenceStatuses = vi.fn()
+vi.mock('@/lib/evidence-items', () => ({
+  getEvidenceStatuses: (...args: unknown[]) => mockGetEvidenceStatuses(...args),
+}))
+
 // Delegates to the real renderPacket by default so the existing happy-path
 // assertions (real %PDF bytes) still hold; only the "render throws" test
 // below overrides this with a rejection.
@@ -39,7 +45,7 @@ vi.mock('@/lib/packet/render', async (importOriginal) => {
   return { renderPacket: (...args: Parameters<typeof actual.renderPacket>) => mockRenderPacket(...args) }
 })
 
-const CASE = { id: 'case-1', owner_id: 'user-1' }
+const CASE = { id: 'case-1' }
 const FACTS = {
   id: 'facts-1',
   case_id: 'case-1',
@@ -73,34 +79,24 @@ async function callRoute() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  mockGetSessionUser.mockResolvedValue({ id: 'user-1', email: null })
+  // Default: entitled, so the assertions below are unaffected by the gate.
+  mockIsEntitled.mockResolvedValue(true)
   mockGetOrCreateCase.mockResolvedValue(CASE)
   mockGetServiceFacts.mockResolvedValue(FACTS)
   mockRouteDischarge.mockResolvedValue(ROUTING)
-  mockGetDraft.mockImplementation(async (_caseId: string, kind: string) =>
+  mockGetDraft.mockImplementation(async (_ownerId: string, _caseId: string, kind: string) =>
     (kind === 'personal_statement' ? STATEMENT_DRAFT : COVER_LETTER_DRAFT))
-  mockFrom.mockImplementation((table: string) => {
-    // Default: entitled via a paid unlock, so the existing (pre-billing) assertions
-    // below are unaffected by the new entitlement gate. The 402 tests override this.
-    if (table === 'entitlements') {
-      return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: 'ent-1' } }) }) }) }
-    }
-    if (table === 'ai_credentials') {
-      return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }
-    }
-    return {
-      select: () => ({
-        eq: async () => ({ data: [{ item_type: 'dd214', status: 'collected' }] }),
-      }),
-    }
-  })
+  mockGetEvidenceStatuses.mockResolvedValue({ dd214: 'collected' })
 })
 
 describe('GET /api/packet', () => {
   test('401 when unauthenticated', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } })
+    mockGetSessionUser.mockResolvedValue(null)
     const res = await callRoute()
     expect(res.status).toBe(401)
+    expect(mockIsEntitled).not.toHaveBeenCalled()
   })
 
   test('409 when service facts are not confirmed', async () => {
@@ -112,7 +108,7 @@ describe('GET /api/packet', () => {
   })
 
   test('409 when no personal-statement draft exists', async () => {
-    mockGetDraft.mockImplementation(async (_caseId: string, kind: string) =>
+    mockGetDraft.mockImplementation(async (_ownerId: string, _caseId: string, kind: string) =>
       (kind === 'personal_statement' ? null : COVER_LETTER_DRAFT))
     const res = await callRoute()
     expect(res.status).toBe(409)
@@ -136,24 +132,37 @@ describe('GET /api/packet', () => {
     expect(buf.subarray(0, 4).toString('utf-8')).toBe('%PDF')
   })
 
+  test('every read is owner-scoped — the session id is the first argument', async () => {
+    await callRoute()
+    expect(mockIsEntitled).toHaveBeenCalledWith('user-1')
+    expect(mockGetOrCreateCase).toHaveBeenCalledWith('user-1')
+    expect(mockGetServiceFacts).toHaveBeenCalledWith('user-1', 'case-1')
+    expect(mockGetEvidenceStatuses).toHaveBeenCalledWith('user-1', 'case-1')
+    expect(mockGetDraft).toHaveBeenCalledWith('user-1', 'case-1', 'personal_statement')
+  })
+
+  test('the packet is never cached by a shared cache, and varies on the session cookie', async () => {
+    const res = await callRoute()
+    expect(res.headers.get('cache-control')).toBe('private, no-store')
+    expect(res.headers.get('vary')).toContain('Cookie')
+  })
+
+  test('the no-store headers are on the refusals too, not only the PDF', async () => {
+    mockGetSessionUser.mockResolvedValue(null)
+    const res = await callRoute()
+    expect(res.headers.get('cache-control')).toBe('private, no-store')
+    expect(res.headers.get('vary')).toContain('Cookie')
+  })
+
   test('happy path succeeds without a cover-letter draft — the statement is the hard requirement', async () => {
-    mockGetDraft.mockImplementation(async (_caseId: string, kind: string) =>
+    mockGetDraft.mockImplementation(async (_ownerId: string, _caseId: string, kind: string) =>
       (kind === 'personal_statement' ? STATEMENT_DRAFT : null))
     const res = await callRoute()
     expect(res.status).toBe(200)
   })
 
   test('402 when the user has no paid unlock and no BYOK key', async () => {
-    mockFrom.mockImplementation((table: string) => {
-      if (table === 'entitlements' || table === 'ai_credentials') {
-        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }
-      }
-      return {
-        select: () => ({
-          eq: async () => ({ data: [{ item_type: 'dd214', status: 'collected' }] }),
-        }),
-      }
-    })
+    mockIsEntitled.mockResolvedValue(false)
     const res = await callRoute()
     expect(res.status).toBe(402)
     const body = await res.json()
@@ -168,23 +177,5 @@ describe('GET /api/packet', () => {
     expect(res.status).toBe(500)
     const body = await res.json()
     expect(body.error).toBe('packet_render_failed')
-  })
-
-  test('a BYOK credential alone satisfies the gate (200, no paid unlock needed)', async () => {
-    mockFrom.mockImplementation((table: string) => {
-      if (table === 'entitlements') {
-        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }) }
-      }
-      if (table === 'ai_credentials') {
-        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { owner_id: 'user-1' } }) }) }) }
-      }
-      return {
-        select: () => ({
-          eq: async () => ({ data: [{ item_type: 'dd214', status: 'collected' }] }),
-        }),
-      }
-    })
-    const res = await callRoute()
-    expect(res.status).toBe(200)
   })
 })

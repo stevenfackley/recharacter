@@ -15,10 +15,9 @@ vi.mock('next/navigation', () => ({
   },
 }))
 
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: 'user-1' } } }) },
-  }),
+vi.mock('@/lib/session', () => ({
+  getSessionUser: async () => ({ id: 'user-1', email: null }),
+  requireSessionUser: async () => ({ id: 'user-1', email: null }),
 }))
 
 const mockExecute = vi.fn()
@@ -27,7 +26,7 @@ vi.mock('@/lib/ai/gateway', () => ({
 }))
 
 vi.mock('@/lib/cases', () => ({
-  getOrCreateCase: async () => ({ id: 'case-1', owner_id: 'user-1' }),
+  getOrCreateCase: async () => ({ id: 'case-1' }),
 }))
 
 const mockSaveNexusAnswer = vi.fn()
@@ -45,6 +44,7 @@ vi.mock('next/cache', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.spyOn(console, 'error').mockImplementation(() => {})
 })
 
 function formWith(text: string) {
@@ -60,7 +60,7 @@ describe('saveAnswer — state-returning save (no redirect)', () => {
 
     const result = await saveAnswer({ saved: false, error: null }, formWith('what happened to me'))
     expect(result).toEqual({ saved: true, error: null })
-    expect(mockSaveNexusAnswer).toHaveBeenCalledWith('case-1', 'q1_condition', 'what happened to me')
+    expect(mockSaveNexusAnswer).toHaveBeenCalledWith('user-1', 'case-1', 'q1', 'what happened to me')
     expect(refreshSpy).toHaveBeenCalled()
     // The old redirect-based save is exactly what discarded unsaved text in the
     // other three textareas (issue #9) — a redirect here is a regression.
@@ -86,6 +86,16 @@ describe('saveAnswer — state-returning save (no redirect)', () => {
     expect(result.saved).toBe(false)
     expect(mockSaveNexusAnswer).not.toHaveBeenCalled()
   })
+
+  test('a throwing save is inline state too — never a redirect that discards the other answers', async () => {
+    mockSaveNexusAnswer.mockRejectedValueOnce(new Error('case not found'))
+    const { saveAnswer } = await import('./actions')
+
+    const result = await saveAnswer({ saved: false, error: null }, formWith('what happened to me'))
+    expect(result).toEqual({ saved: false, error: 'Could not save — try again shortly' })
+    expect(refreshSpy).not.toHaveBeenCalled()
+    expect(redirectSpy).not.toHaveBeenCalled()
+  })
 })
 
 describe('shapeAnswer — premium gate transport', () => {
@@ -106,5 +116,14 @@ describe('shapeAnswer — premium gate transport', () => {
     const result = await shapeAnswer({ shapedAnswer: null, gaps: null }, formWith('my raw account'))
     expect(result).toEqual({ shapedAnswer: null, gaps: null })
     expect(redirectSpy).not.toHaveBeenCalled()
+  })
+
+  test('the shaping task runs under the signed-in owner id', async () => {
+    mockExecute.mockResolvedValue({ ok: true, data: { shapedAnswer: 'shaped', gaps: '' } })
+    const { shapeAnswer } = await import('./actions')
+
+    await shapeAnswer({ shapedAnswer: null, gaps: null }, formWith('my raw account'))
+    expect(mockExecute.mock.calls[0][0]).toBe('user-1')
+    expect(mockExecute.mock.calls[0][1]).toBe('shape_nexus_answer')
   })
 })

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { requireSessionUser } from '@/lib/session'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
 import { routeDischarge, type RoutingResult } from '@/lib/routing'
@@ -23,9 +24,10 @@ const FLAG_TEXT: Record<string, string> = {
 }
 
 export default async function CasePage() {
-  const c = await getOrCreateCase()
-  const facts = await getServiceFacts(c.id)
-  const answers = await getNexusAnswers(c.id)
+  const user = await requireSessionUser('/case')
+  const c = await getOrCreateCase(user.id)
+  const facts = await getServiceFacts(user.id, c.id)
+  const answers = await getNexusAnswers(user.id, c.id)
   const nexusFilledCount = KURTA_QUESTIONS.filter(
     (q) => (answers?.[q.column] ?? '').trim().length > 0,
   ).length

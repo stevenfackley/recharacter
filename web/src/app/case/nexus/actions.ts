@@ -2,7 +2,7 @@
 
 import { refresh } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { getSessionUser, requireSessionUser } from '@/lib/session'
 import { executeAiTask } from '@/lib/ai/gateway'
 import { getOrCreateCase } from '@/lib/cases'
 import { KURTA_QUESTIONS, saveNexusAnswer } from '@/lib/nexus'
@@ -20,11 +20,12 @@ export type SaveState = { saved: boolean; error: string | null }
  * redirecting — a full-page transition here discards unsaved text in the other
  * three textareas (issue #9). refresh() re-renders the server components (the
  * answered-count) while client textarea state survives.
+ *
+ * Failures are inline copy rather than an `?error=` code for the same reason:
+ * this action deliberately never reaches a URL.
  */
 export async function saveAnswer(_prev: SaveState, formData: FormData): Promise<SaveState> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const user = await requireSessionUser('/case/nexus')
 
   const key = String(formData.get('questionKey') ?? '')
   const question = KURTA_QUESTIONS.find((q) => q.key === key)
@@ -35,8 +36,14 @@ export async function saveAnswer(_prev: SaveState, formData: FormData): Promise<
     return { saved: false, error: 'Answer too long (6000 characters max)' }
   }
 
-  const c = await getOrCreateCase()
-  await saveNexusAnswer(c.id, question.column, text)
+  const c = await getOrCreateCase(user.id)
+  try {
+    await saveNexusAnswer(user.id, c.id, question.key, text)
+  } catch (err) {
+    // The failure message only — the answer itself never goes to a log.
+    console.error('nexus answer save failed:', err instanceof Error ? err.message : err)
+    return { saved: false, error: 'Could not save — try again shortly' }
+  }
   refresh()
   return { saved: true, error: null }
 }
@@ -53,8 +60,7 @@ export type ShapeState = { shapedAnswer: string | null; gaps: string | null }
  * a client-supplied prompt is never trusted.
  */
 export async function shapeAnswer(_prev: ShapeState, formData: FormData): Promise<ShapeState> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSessionUser()
   if (!user) return { shapedAnswer: null, gaps: null }
 
   const key = String(formData.get('questionKey') ?? '')
@@ -64,7 +70,7 @@ export async function shapeAnswer(_prev: ShapeState, formData: FormData): Promis
   const rawNarrative = String(formData.get('text') ?? '').trim()
   if (!rawNarrative) return { shapedAnswer: null, gaps: null }
 
-  const result = await executeAiTask(supabase, user.id, 'shape_nexus_answer', {
+  const result = await executeAiTask(user.id, 'shape_nexus_answer', {
     questionKey: question.key,
     questionPrompt: question.prompt,
     rawNarrative,

@@ -31,9 +31,9 @@ export const serviceFacts = recharacter.table('service_facts', {
 }, (t) => [
   index('service_facts_owner_idx').on(t.ownerId),
   check('service_facts_branch_check', sql`${t.branch} in ('Army','Navy','MarineCorps','AirForce','SpaceForce','CoastGuard')`),
-  // 'GeneralUnderHonorable', not '...Conditions': supabase/migrations/0004 and the
-  // .NET RulesEngine enum the routing client passes through verbatim both use the
-  // short form, and src/lib/facts.ts validates against it.
+  // 'GeneralUnderHonorable', not '...Conditions': the .NET RulesEngine enum the
+  // routing client passes through verbatim uses the short form, every migration
+  // this schema has carried has used it, and src/lib/facts.ts validates against it.
   check('service_facts_characterization_check', sql`${t.characterization} in ('Honorable','GeneralUnderHonorable','OtherThanHonorable','BadConductDischarge','DishonorableDischarge','Uncharacterized')`),
   check('service_facts_source_check', sql`${t.source} in ('manual','extracted')`),
 ])

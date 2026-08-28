@@ -1,28 +1,27 @@
 import Link from 'next/link'
+import type { Metadata } from 'next'
+import { requireSessionUser } from '@/lib/session'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
 import { getDraft } from '@/lib/drafts'
+import { getEvidenceStatuses } from '@/lib/evidence-items'
 import { isEntitled } from '@/lib/billing'
-import { createClient } from '@/lib/supabase/server'
-import type { Metadata } from 'next'
 
 export const metadata: Metadata = { title: 'Your filing packet' }
 
 export default async function PacketPage() {
-  const c = await getOrCreateCase()
-  const facts = await getServiceFacts(c.id)
+  const user = await requireSessionUser('/case/packet')
+  const c = await getOrCreateCase(user.id)
+  const facts = await getServiceFacts(user.id, c.id)
   const factsConfirmed = facts?.confirmed ?? false
 
-  const statement = await getDraft(c.id, 'personal_statement')
-  const coverLetter = await getDraft(c.id, 'cover_letter')
+  const statement = await getDraft(user.id, c.id, 'personal_statement')
+  const coverLetter = await getDraft(user.id, c.id, 'cover_letter')
 
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  const entitled = user ? await isEntitled(supabase, user.id) : false
+  const entitled = await isEntitled(user.id)
 
-  const { data: itemRows } = await supabase
-    .from('evidence_items').select('item_type, status').eq('case_id', c.id)
-  const evidenceCount = (itemRows ?? []).filter((r) => r.status === 'collected').length
+  const statuses = await getEvidenceStatuses(user.id, c.id)
+  const evidenceCount = Object.values(statuses).filter((s) => s === 'collected').length
 
   // Mirrors the route's gates exactly: confirmed facts + a personal-statement
   // draft are required. Cover letter and evidence are included when present.
