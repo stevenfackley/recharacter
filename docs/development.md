@@ -16,7 +16,7 @@ git clone https://github.com/stevenfackley/recharacter && cd recharacter
 # .NET
 dotnet build && dotnet test          # 20+ rules-engine tests + API integration tests
 
-# Local stack (from repo root) — Postgres 17 on :55433, MinIO on :9000 (console :9001)
+# Local stack (from repo root) — Postgres 17 on :55433, MinIO on :9100 (console :9101)
 docker compose -f compose.dev.yaml up -d
 
 # Web
