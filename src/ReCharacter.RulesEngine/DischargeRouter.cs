@@ -12,10 +12,16 @@ public sealed class DischargeRouter(IClock clock)
         var drbOpen = DrbWindow.IsOpen(facts.DischargeDate, clock.Today);
         var flags = new List<RoutingFlag>();
 
-        // The DRB cannot review general-court-martial discharges; the BCMR must.
-        var mustUseBcmr = facts.WasGeneralCourtMartial || !drbOpen;
+        // A Dishonorable Discharge can only be adjudged by a general court-martial (UCMJ Art.
+        // 19 — a special court-martial may adjudge a BCD but never a DD), so it implies GCM even
+        // when the upstream flag is unset (e.g. DD-214 extraction defaulted it to false).
+        var isGeneralCourtMartial =
+            facts.WasGeneralCourtMartial || facts.Characterization == DischargeCharacterization.DishonorableDischarge;
 
-        if (facts.WasGeneralCourtMartial)
+        // The DRB (10 U.S.C. §1553) cannot review general-court-martial discharges; the BCMR must.
+        var mustUseBcmr = isGeneralCourtMartial || !drbOpen;
+
+        if (isGeneralCourtMartial)
             flags.Add(RoutingFlag.GeneralCourtMartialRequiresBcmr);
         else if (!drbOpen)
             flags.Add(RoutingFlag.PastDrbWindow);
@@ -37,7 +43,7 @@ public sealed class DischargeRouter(IClock clock)
         var boardName = board == ReviewBoard.Drb ? names.DrbName : names.BcmrName;
 
         var available = new List<ReviewBoard>();
-        if (drbOpen && !facts.WasGeneralCourtMartial)
+        if (drbOpen && !isGeneralCourtMartial)
             available.Add(ReviewBoard.Drb);
         available.Add(ReviewBoard.Bcmr);
 

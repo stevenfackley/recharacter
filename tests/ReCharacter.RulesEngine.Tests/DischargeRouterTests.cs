@@ -223,7 +223,11 @@ public class DischargeRouterTests
 
         Assert.Equal(ReviewBoard.Bcmr, result.RecommendedBoard);
         Assert.Equal(ApplicationForm.DD149, result.RecommendedForm);
-        Assert.Equal(new[] { RoutingFlag.GeneralCourtMartialRequiresBcmr }, result.Flags);
+        // Same flags as the flag-unset case above (plus the always-paired waiver-likely flag) —
+        // no duplicate GeneralCourtMartialRequiresBcmr from the flag and the characterization both firing.
+        Assert.Equal(
+            new[] { RoutingFlag.GeneralCourtMartialRequiresBcmr, RoutingFlag.BcmrThreeYearStatuteWaiverLikely },
+            result.Flags);
         Assert.Equal(new[] { ReviewBoard.Bcmr }, result.AvailableBoards);
     }
 
