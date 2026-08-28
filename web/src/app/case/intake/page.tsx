@@ -22,6 +22,12 @@ const ERRORS = {
   extract_failed: 'We could not read the document automatically — enter your facts below.',
   byok_key_rejected:
     'Your AI provider rejected your API key — check it in AI settings, or enter your facts below.',
+  byok_key_unreadable:
+    'Your saved API key could not be read, so it was never sent anywhere — re-enter it in ' +
+    'AI settings, or enter your facts below.',
+  ai_unavailable:
+    'Reading documents is temporarily unavailable on our side. Your upload was saved; ' +
+    'enter your facts below.',
   invalid_facts: 'Check the highlighted fields.',
 } as const
 

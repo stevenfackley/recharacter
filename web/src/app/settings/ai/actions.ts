@@ -18,7 +18,10 @@ export async function saveByokKey(formData: FormData) {
   const user = await requireSessionUser('/settings/ai')
 
   const apiKey = String(formData.get('apiKey') ?? '').trim()
-  if (!apiKey) redirect('/settings/ai?error=invalid_key')
+  // A shape check, not a validity check: nothing here can prove a key works, but
+  // catching a pasted-wrong-field mistake now beats storing it and failing at the
+  // provider later, on a page that no longer has the value to correct.
+  if (!apiKey || !apiKey.startsWith('sk-ant-')) redirect('/settings/ai?error=invalid_key')
 
   // Our misconfiguration, not their key — say so with its own code rather than
   // sending them off to re-enter a key that is fine.
@@ -30,12 +33,21 @@ export async function saveByokKey(formData: FormData) {
   }
   if (!kek) redirect('/settings/ai?error=kek_missing')
 
+  let failed = false
   try {
     // The ciphertext is bound to its owner (AAD): a row read for anyone else
     // cannot be turned back into a usable key.
     await saveEncryptedKey(user.id, encryptSecret(apiKey, kek, user.id))
-  } catch (err) {
-    console.error('byok key save failed:', err instanceof Error ? err.message : err)
+  } catch {
+    // Deliberately NOT the underlying message. A client library that echoes the
+    // value it choked on would put the veteran's API key straight into our logs,
+    // which is the one thing this whole path exists to prevent. The owner id is
+    // enough to find the row; the failure itself is visible in the store's own
+    // telemetry.
+    failed = true
+  }
+  if (failed) {
+    console.error('byok key save failed for owner', user.id)
     redirect('/settings/ai?error=save_failed')
   }
   revalidatePath('/settings/ai')

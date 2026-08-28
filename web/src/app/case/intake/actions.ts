@@ -2,11 +2,11 @@
 
 import { redirect } from 'next/navigation'
 import { requireSessionUser } from '@/lib/session'
-import { executeAiTask } from '@/lib/ai/gateway'
+import { executeAiTask, type AiTaskResult } from '@/lib/ai/gateway'
 import { getOrCreateCase } from '@/lib/cases'
 import { getObjectStore } from '@/lib/storage'
 import {
-  putCaseDocument, DocumentTooLargeError, UnsupportedDocumentError,
+  putCaseDocument, MAX_DOCUMENT_BYTES, DocumentTooLargeError, UnsupportedDocumentError,
   type DocumentType,
 } from '@/lib/case-documents'
 import { serviceFactsSchema, saveServiceFacts, confirmServiceFacts } from '@/lib/facts'
@@ -17,6 +17,19 @@ import { serviceFactsSchema, saveServiceFacts, confirmServiceFacts } from '@/lib
  * recharacter.us — the same rule lib/auth-errors.ts enforces for the auth pages.
  */
 
+/**
+ * A refused extraction, named precisely. The two BYOK failures are NOT the same
+ * apology: a 502 means the provider saw the key and rejected it, while a 503
+ * means we could not decrypt what we stored — the provider never saw anything —
+ * and only the second is fixed by re-entering the key.
+ */
+function extractFailureCode(result: Extract<AiTaskResult, { ok: false }>): string {
+  if (result.byokKeyRejected) {
+    return result.status === 503 ? 'byok_key_unreadable' : 'byok_key_rejected'
+  }
+  return 'extract_failed'
+}
+
 /** Upload a separation document, extract facts with AI, save them UNCONFIRMED. */
 export async function uploadAndExtract(formData: FormData) {
   const user = await requireSessionUser('/case/intake')
@@ -24,6 +37,12 @@ export async function uploadAndExtract(formData: FormData) {
   const file = formData.get('document')
   if (!(file instanceof File) || file.size === 0) {
     redirect('/case/intake?error=no_file')
+  }
+
+  // Refuse on the declared size BEFORE reading the body into memory: the store
+  // enforces the same cap, but by then the whole file is already buffered.
+  if (file.size > MAX_DOCUMENT_BYTES) {
+    redirect('/case/intake?error=file_too_large')
   }
 
   const c = await getOrCreateCase(user.id)
@@ -42,15 +61,21 @@ export async function uploadAndExtract(formData: FormData) {
     redirect('/case/intake?error=upload_failed')
   }
 
-  // Extraction is a bounded task; the result only PREFILLS the review form.
-  const result = await executeAiTask(user.id, 'extract_service_facts', {
-    documentBase64: Buffer.from(bytes).toString('base64'),
-    mediaType: stored.contentType,
-  })
+  // Extraction is a bounded task; the result only PREFILLS the review form. The
+  // document is already stored, so every failure below still leaves the veteran
+  // with the manual form — never a 500 over an upload that actually succeeded.
+  let result
+  try {
+    result = await executeAiTask(user.id, 'extract_service_facts', {
+      documentBase64: Buffer.from(bytes).toString('base64'),
+      mediaType: stored.contentType,
+    })
+  } catch (err) {
+    console.error('extract_service_facts failed:', err instanceof Error ? err.message : err)
+    redirect('/case/intake?error=ai_unavailable')
+  }
   if (!result.ok) {
-    redirect(result.byokKeyRejected
-      ? '/case/intake?error=byok_key_rejected'
-      : '/case/intake?error=extract_failed')
+    redirect(`/case/intake?error=${extractFailureCode(result)}`)
   }
 
   const d = result.data as {

@@ -29,12 +29,14 @@ vi.mock('@/lib/billing', () => ({
 }))
 
 const mockRecordUsage = vi.fn()
+const mockRecordAttempt = vi.fn()
 vi.mock('@/lib/ai/usage', () => ({
   recordUsage: (...args: unknown[]) => mockRecordUsage(...args),
+  recordAttempt: (...args: unknown[]) => mockRecordAttempt(...args),
 }))
 
 vi.mock('@/lib/ai/limits', () => ({
-  checkAiLimits: async () => ({ allowed: true }),
+  checkAiLimits: vi.fn(async () => ({ allowed: true })),
 }))
 
 const OWNER = 'user-1'
@@ -70,6 +72,17 @@ describe('POST /api/ai/[task]', () => {
     mockGetSessionUser.mockResolvedValue(null)
     const res = await callRoute('ping', { message: 'hi' })
     expect(res.status).toBe(401)
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  test('503 ai_unavailable when the gateway rejects outright, not an unhandled 500', async () => {
+    // An attempt the gateway cannot record is a rejection by design — the call
+    // must not run unmetered — and the route owns that at its boundary.
+    mockRecordAttempt.mockRejectedValueOnce(new Error('attempt could not be recorded'))
+    const res = await callRoute('ping', { message: 'hi' })
+
+    expect(res.status).toBe(503)
+    expect((await res.json()).error).toBe('ai_unavailable')
     expect(mockCreate).not.toHaveBeenCalled()
   })
 

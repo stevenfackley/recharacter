@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
+import { requireSessionUser } from '@/lib/session'
 import { deleteAccount } from './actions'
 
 export const metadata: Metadata = { title: 'Your data' }
@@ -21,6 +22,9 @@ export default async function DataSettingsPage({
 }: {
   searchParams: Promise<{ error?: string }>
 }) {
+  // The proxy is a redirect convenience, not the gate: this page names the two
+  // controls that empty an account, so it proves the session itself.
+  await requireSessionUser('/settings/data')
   const { error } = await searchParams
   const message = ERRORS[error as keyof typeof ERRORS] ?? null
 

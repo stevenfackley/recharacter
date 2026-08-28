@@ -86,7 +86,7 @@ describe('drafting actions — premium gate transport', () => {
     mockExecute.mockResolvedValue({ ok: false, status: 402, error: 'needs the case unlock or your own API key' })
     const { generateStatement } = await import('./actions')
 
-    await expect(generateStatement(new FormData())).rejects.toThrow()
+    await expect(generateStatement(new FormData())).rejects.toThrow('NEXT_REDIRECT')
     expect(redirectSpy).toHaveBeenCalledWith('/case/upgrade')
   })
 
@@ -94,7 +94,7 @@ describe('drafting actions — premium gate transport', () => {
     mockExecute.mockResolvedValue({ ok: false, status: 402, error: 'needs the case unlock or your own API key' })
     const { generateCoverLetter } = await import('./actions')
 
-    await expect(generateCoverLetter(new FormData())).rejects.toThrow()
+    await expect(generateCoverLetter(new FormData())).rejects.toThrow('NEXT_REDIRECT')
     expect(redirectSpy).toHaveBeenCalledWith('/case/upgrade')
   })
 
@@ -102,8 +102,26 @@ describe('drafting actions — premium gate transport', () => {
     mockExecute.mockResolvedValue({ ok: false, status: 503, error: 'AI key unavailable' })
     const { generateStatement } = await import('./actions')
 
-    await expect(generateStatement(new FormData())).rejects.toThrow()
+    await expect(generateStatement(new FormData())).rejects.toThrow('NEXT_REDIRECT')
     expect(redirectSpy).toHaveBeenCalledWith('/case/draft?error=ai_unavailable')
+  })
+
+  test('a gateway that rejects outright is ai_unavailable, not a blank 500', async () => {
+    mockExecute.mockRejectedValue(new Error('ai_usage attempt insert failed'))
+    const { generateStatement } = await import('./actions')
+
+    await expect(generateStatement(new FormData())).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirectSpy).toHaveBeenCalledWith('/case/draft?error=ai_unavailable')
+  })
+
+  test('an unreadable saved key is its own code — the provider never saw it', async () => {
+    mockExecute.mockResolvedValue({
+      ok: false, status: 503, error: 'Your saved API key could not be read', byokKeyRejected: true,
+    })
+    const { generateStatement } = await import('./actions')
+
+    await expect(generateStatement(new FormData())).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirectSpy).toHaveBeenCalledWith('/case/draft?error=byok_key_unreadable')
   })
 
   test('a rejected BYOK key gets its own code (the page names AI settings, not a retry)', async () => {
@@ -112,7 +130,7 @@ describe('drafting actions — premium gate transport', () => {
     })
     const { generateStatement } = await import('./actions')
 
-    await expect(generateStatement(new FormData())).rejects.toThrow()
+    await expect(generateStatement(new FormData())).rejects.toThrow('NEXT_REDIRECT')
     expect(redirectSpy).toHaveBeenCalledWith('/case/draft?error=byok_key_rejected')
   })
 
@@ -120,7 +138,7 @@ describe('drafting actions — premium gate transport', () => {
     mockExecute.mockResolvedValue({ ok: false, status: 502, error: 'AI provider error' })
     const { generateStatement } = await import('./actions')
 
-    await expect(generateStatement(new FormData())).rejects.toThrow()
+    await expect(generateStatement(new FormData())).rejects.toThrow('NEXT_REDIRECT')
     expect(redirectSpy).toHaveBeenCalledWith('/case/draft?error=generate_failed')
   })
 
@@ -128,7 +146,7 @@ describe('drafting actions — premium gate transport', () => {
     mockExecute.mockResolvedValue({ ok: false, status: 429, error: 'Too many AI requests' })
     const { generateStatement } = await import('./actions')
 
-    await expect(generateStatement(new FormData())).rejects.toThrow()
+    await expect(generateStatement(new FormData())).rejects.toThrow('NEXT_REDIRECT')
     expect(redirectSpy).toHaveBeenCalledWith('/case/draft?error=rate_limited')
   })
 
@@ -136,7 +154,7 @@ describe('drafting actions — premium gate transport', () => {
     mockRouteDischarge.mockRejectedValue(new Error('routing down'))
     const { generateCoverLetter } = await import('./actions')
 
-    await expect(generateCoverLetter(new FormData())).rejects.toThrow()
+    await expect(generateCoverLetter(new FormData())).rejects.toThrow('NEXT_REDIRECT')
     expect(redirectSpy).toHaveBeenCalledWith('/case/draft?error=routing_unavailable')
     expect(mockExecute).not.toHaveBeenCalled()
   })
@@ -147,7 +165,7 @@ describe('drafting actions — owner scoping and persistence', () => {
     mockExecute.mockResolvedValue({ ok: true, data: { statement: 'My story.' } })
     const { generateStatement } = await import('./actions')
 
-    await expect(generateStatement(new FormData())).rejects.toThrow()
+    await expect(generateStatement(new FormData())).rejects.toThrow('NEXT_REDIRECT')
     expect(mockExecute.mock.calls[0][0]).toBe('user-1')
     expect(mockSaveGeneratedDraft).toHaveBeenCalledWith('user-1', 'case-1', 'personal_statement', 'My story.')
     expect(redirectSpy).toHaveBeenCalledWith('/case/draft')
@@ -158,7 +176,7 @@ describe('drafting actions — owner scoping and persistence', () => {
     mockExecute.mockResolvedValue({ ok: true, data: { statement: 'My story.' } })
     const { generateStatement } = await import('./actions')
 
-    await expect(generateStatement(new FormData())).rejects.toThrow()
+    await expect(generateStatement(new FormData())).rejects.toThrow('NEXT_REDIRECT')
     const input = mockExecute.mock.calls[0][2] as { collectedEvidence: string[] }
     expect(input.collectedEvidence).toHaveLength(1)
   })
@@ -168,7 +186,7 @@ describe('drafting actions — owner scoping and persistence', () => {
     mockSaveGeneratedDraft.mockRejectedValueOnce(new Error('case not found'))
     const { generateStatement } = await import('./actions')
 
-    await expect(generateStatement(new FormData())).rejects.toThrow()
+    await expect(generateStatement(new FormData())).rejects.toThrow('NEXT_REDIRECT')
     expect(redirectSpy).toHaveBeenCalledWith('/case/draft?error=save_failed')
   })
 })

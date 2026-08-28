@@ -6,6 +6,7 @@ import { entitlements } from '@/db/schema'
 import { saveEncryptedKey } from '@/lib/ai/credentials'
 import {
   isEntitled,
+  hasPaidEntitlement,
   grantEntitlement,
   recordPendingCheckout,
   listPendingCheckouts,
@@ -31,6 +32,24 @@ describe('the freemium gate', () => {
     const alice = freshOwner()
     await saveEncryptedKey(alice, 'ciphertext')
     expect(await isEntitled(alice)).toBe(true)
+  })
+})
+
+describe('hasPaidEntitlement', () => {
+  it('is true only for the owner who actually paid', async () => {
+    const alice = freshOwner()
+    const bob = freshOwner()
+    expect(await hasPaidEntitlement(alice)).toBe(false)
+    await grantEntitlement(alice, session(alice))
+    expect(await hasPaidEntitlement(alice)).toBe(true)
+    expect(await hasPaidEntitlement(bob)).toBe(false)
+  })
+
+  it('stays false for a BYOK-only owner — a key unlocks, it does not pay', async () => {
+    const alice = freshOwner()
+    await saveEncryptedKey(alice, 'ciphertext')
+    expect(await isEntitled(alice)).toBe(true)
+    expect(await hasPaidEntitlement(alice)).toBe(false)
   })
 })
 

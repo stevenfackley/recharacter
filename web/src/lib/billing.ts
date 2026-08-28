@@ -101,3 +101,20 @@ export async function clearPendingCheckout(ownerId: string, sessionId: string): 
       and(eq(pendingCheckouts.ownerId, ownerId), eq(pendingCheckouts.stripeSessionId, sessionId)),
     )
 }
+
+/**
+ * The PAID half of isEntitled, on its own.
+ *
+ * The upgrade page needs the distinction isEntitled deliberately erases: a
+ * veteran who paid is thanked for paying, whether or not they also brought
+ * their own key, and only an unpaid BYOK account is told it is unlocked
+ * through that key.
+ */
+export async function hasPaidEntitlement(ownerId: string): Promise<boolean> {
+  const rows = await getDb()
+    .select({ id: entitlements.id })
+    .from(entitlements)
+    .where(eq(entitlements.ownerId, ownerId))
+    .limit(1)
+  return rows.length > 0
+}

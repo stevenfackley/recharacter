@@ -2,9 +2,9 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { requireSessionUser } from '@/lib/session'
 import { getEnv } from '@/lib/env'
-import { isEntitled } from '@/lib/billing'
-import { credentialCreatedAt } from '@/lib/ai/credentials'
-import { startCheckout, restorePurchaseAction, verifySession } from './actions'
+import { isEntitled, hasPaidEntitlement } from '@/lib/billing'
+import { verifySession } from '@/lib/billing-verify'
+import { startCheckout, restorePurchaseAction } from './actions'
 
 export const metadata: Metadata = { title: 'Unlock your case' }
 
@@ -37,12 +37,13 @@ export default async function UpgradePage({
   // but an already-unlocked veteran needs no Stripe round-trip at all.
   let verifyFailed = false
   if (!entitled && params.session_id) {
-    entitled = await verifySession(params.session_id)
+    entitled = await verifySession(user.id, params.session_id)
     verifyFailed = !entitled
   }
 
-  const byok = (await credentialCreatedAt(user.id)) !== null
-  const paid = entitled && !byok
+  // A veteran who paid is thanked for paying even if they also brought a key;
+  // only an unpaid account is told the key is what unlocked it.
+  const paid = entitled && (await hasPaidEntitlement(user.id))
   const stripeConfigured = Boolean(getEnv().STRIPE_SECRET_KEY)
   const error = verifyFailed
     ? ERRORS.verify_failed
