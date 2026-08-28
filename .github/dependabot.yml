@@ -52,6 +52,14 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # eslint-config-next@16.x (the version this repo's Next release
+      # supports) bundles eslint-plugin-react@^7.37.x, whose peerDependencies
+      # top out at "^9.7" — it does not support ESLint 10 yet. Bumping past
+      # 9.x breaks `npm run lint` (see PR that reverted the 9->10 bump).
+      # Revisit once eslint-config-next ships peer support for ESLint 10.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "docker"
     directories:

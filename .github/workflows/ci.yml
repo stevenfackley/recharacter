@@ -41,6 +41,10 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install
         run: npm ci
+      - name: Lint + typecheck
+        run: |
+          npm run lint
+          npx tsc --noEmit
       - name: Build
         run: npm run build
       - name: Unit tests (no Supabase required)
