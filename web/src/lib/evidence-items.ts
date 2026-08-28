@@ -28,7 +28,7 @@ export async function setEvidenceStatus(
   status: EvidenceStatus,
 ): Promise<void> {
   await assertCaseOwned(ownerId, caseId)
-  await getDb()
+  const rows = await getDb()
     .insert(evidenceItems)
     .values({ caseId, ownerId, itemType, status })
     .onConflictDoUpdate({
@@ -36,4 +36,6 @@ export async function setEvidenceStatus(
       set: { status, updatedAt: new Date() },
       setWhere: eq(evidenceItems.ownerId, ownerId),
     })
+    .returning({ id: evidenceItems.id })
+  if (!rows.length) throw new Error('evidence_items write affected no rows (owner mismatch)')
 }

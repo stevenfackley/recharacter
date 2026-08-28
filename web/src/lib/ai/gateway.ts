@@ -2,7 +2,7 @@ import { getTask } from '@/lib/ai/tasks'
 import { checkAiLimits } from '@/lib/ai/limits'
 import { getEncryptedKey } from '@/lib/ai/credentials'
 import { resolveApiKey, createAnthropicClient } from '@/lib/ai/provider'
-import { recordUsage } from '@/lib/ai/usage'
+import { recordAttempt, recordUsage } from '@/lib/ai/usage'
 import { isEntitled } from '@/lib/billing'
 import { getEnv } from '@/lib/env'
 
@@ -47,6 +47,16 @@ export async function executeAiTask(
       return { ok: false, status: 402, error: 'This feature needs the case unlock or your own API key' }
     }
   }
+
+  // The attempt is counted BEFORE the guardrails read the counter, and only once
+  // the request is known to be well-formed and permitted (past buildPrompt and
+  // the premium gate, so a 400 or a 402 never burns a slot). Counting here rather
+  // than after the provider answers is what makes the per-minute limit real: N
+  // concurrent requests each see the attempts already inserted, so the race is
+  // one insert wide instead of one model call wide, and a request that dies at
+  // the provider still costs its caller a slot. recordAttempt does not swallow —
+  // an attempt we cannot count must not run.
+  await recordAttempt(ownerId, task.name)
 
   const ciphertext = await getEncryptedKey(ownerId)
 

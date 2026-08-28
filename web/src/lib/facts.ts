@@ -93,6 +93,10 @@ export async function getServiceFacts(ownerId: string, caseId: string): Promise<
  * the upsert: without it a caller could attach a facts row to any case id it
  * guessed. `setWhere` keeps the conflict branch owner-scoped too, so a collision
  * on someone else's case_id updates nothing instead of overwriting their facts.
+ *
+ * `returning` turns that "updates nothing" from a silent success into a thrown
+ * error. A no-op upsert means the row we were told to write is owned by someone
+ * else, which the caller must never see as a save.
  */
 async function upsertServiceFacts(
   ownerId: string,
@@ -111,7 +115,7 @@ async function upsertServiceFacts(
     confirmed,
     updatedAt: new Date(),
   }
-  await getDb()
+  const rows = await getDb()
     .insert(serviceFacts)
     .values({ caseId, ownerId, ...columns })
     .onConflictDoUpdate({
@@ -119,6 +123,8 @@ async function upsertServiceFacts(
       set: columns,
       setWhere: eq(serviceFacts.ownerId, ownerId),
     })
+    .returning({ id: serviceFacts.id })
+  if (!rows.length) throw new Error('service_facts write affected no rows (owner mismatch)')
 }
 
 /**
@@ -141,13 +147,17 @@ export async function saveServiceFacts(
  * The confirmation gate: the veteran reviewed these values and submitted them.
  * Derives provenance itself (never trusts a caller-supplied label) so an
  * untouched extraction stays 'extracted' while any edit becomes 'manual'.
+ *
+ * No assertCaseOwned here: the prior read is already owner-scoped (a stranger
+ * sees null and gets 'manual', which is written to nothing), and the upsert
+ * helper proves ownership itself before touching a row. Asserting twice only
+ * bought an extra round trip.
  */
 export async function confirmServiceFacts(
   ownerId: string,
   caseId: string,
   facts: ServiceFacts,
 ): Promise<void> {
-  await assertCaseOwned(ownerId, caseId)
   const prior = await getServiceFacts(ownerId, caseId)
   await upsertServiceFacts(ownerId, caseId, facts, resolveSource(prior, facts), true)
 }

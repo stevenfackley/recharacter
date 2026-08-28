@@ -1,6 +1,19 @@
 import { count, eq, sql } from 'drizzle-orm'
 import { getDb } from '@/db'
-import { aiUsage } from '@/db/schema'
+import { aiAttempts, aiUsage } from '@/db/schema'
+
+/**
+ * Records one ATTEMPTED call, before the guardrails read the counter.
+ *
+ * Deliberately does NOT swallow, unlike recordUsage: an attempt that cannot be
+ * written is an attempt that has not been counted, and running the model anyway
+ * would hand a caller an uncounted request every time the insert fails. Nothing
+ * has been spent yet at this point, so failing closed costs the veteran only a
+ * retry.
+ */
+export async function recordAttempt(ownerId: string, task: string): Promise<void> {
+  await getDb().insert(aiAttempts).values({ ownerId, task })
+}
 
 export async function recordUsage(
   ownerId: string,

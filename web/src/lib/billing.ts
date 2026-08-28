@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, ne } from 'drizzle-orm'
 import { getDb } from '@/db'
 import { aiCredentials, entitlements, pendingCheckouts } from '@/db/schema'
 
@@ -64,6 +64,21 @@ export async function grantEntitlement(
     .limit(1)
   if (!existing) {
     throw new Error(`checkout session ${sessionId} could not be granted to ${ownerId}`)
+  }
+
+  // Two different reasons the incoming session id can differ from the one on
+  // file, and only one of them is benign. Before writing it off as a duplicate
+  // purchase, check whether that session id is already spent by ANOTHER account:
+  // if it is, this call is trying to credit one person's payment to a second
+  // owner, and the on-conflict-do-nothing above hid it because the owner_id
+  // unique fired first. That is a billing fraud signal, not a log line.
+  if (existing.stripeSessionId !== sessionId) {
+    const [claimedElsewhere] = await db
+      .select({ id: entitlements.id })
+      .from(entitlements)
+      .where(and(eq(entitlements.stripeSessionId, sessionId), ne(entitlements.ownerId, ownerId)))
+      .limit(1)
+    if (claimedElsewhere) throw new Error('stripe session belongs to another account')
   }
 
   // A second paid session for an owner who already holds the one-per-owner
