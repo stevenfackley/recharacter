@@ -1,9 +1,70 @@
 {
-  "id": "c03b28ca-f7c7-4660-927c-f02e5615b80c",
+  "id": "3064d940-d7d7-4b3c-ad19-bdf1a46716e0",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "recharacter.ai_attempts": {
+      "name": "ai_attempts",
+      "schema": "recharacter",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "task": {
+          "name": "task",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "ai_attempts_owner_created_idx": {
+          "name": "ai_attempts_owner_created_idx",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "recharacter.ai_credentials": {
       "name": "ai_credentials",
       "schema": "recharacter",
@@ -120,6 +181,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "ai_usage_managed_created_idx": {
+          "name": "ai_usage_managed_created_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"recharacter\".\"ai_usage\".\"byok\" = false",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -225,6 +302,22 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "case_context_case_owner_fk": {
+          "name": "case_context_case_owner_fk",
+          "tableFrom": "case_context",
+          "tableTo": "cases",
+          "schemaTo": "recharacter",
+          "columnsFrom": [
+            "case_id",
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id",
+            "owner_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -297,7 +390,16 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "cases_id_owner_key": {
+          "name": "cases_id_owner_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "owner_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -415,6 +517,22 @@
           ],
           "columnsTo": [
             "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "drafts_case_owner_fk": {
+          "name": "drafts_case_owner_fk",
+          "tableFrom": "drafts",
+          "tableTo": "cases",
+          "schemaTo": "recharacter",
+          "columnsFrom": [
+            "case_id",
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id",
+            "owner_id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -607,6 +725,22 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "evidence_items_case_owner_fk": {
+          "name": "evidence_items_case_owner_fk",
+          "tableFrom": "evidence_items",
+          "tableTo": "cases",
+          "schemaTo": "recharacter",
+          "columnsFrom": [
+            "case_id",
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id",
+            "owner_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -718,6 +852,22 @@
           ],
           "columnsTo": [
             "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "nexus_answers_case_owner_fk": {
+          "name": "nexus_answers_case_owner_fk",
+          "tableFrom": "nexus_answers",
+          "tableTo": "cases",
+          "schemaTo": "recharacter",
+          "columnsFrom": [
+            "case_id",
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id",
+            "owner_id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -905,6 +1055,22 @@
           ],
           "columnsTo": [
             "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "service_facts_case_owner_fk": {
+          "name": "service_facts_case_owner_fk",
+          "tableFrom": "service_facts",
+          "tableTo": "cases",
+          "schemaTo": "recharacter",
+          "columnsFrom": [
+            "case_id",
+            "owner_id"
+          ],
+          "columnsTo": [
+            "id",
+            "owner_id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"

@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import { getDb } from '@/db'
 import {
   cases, serviceFacts, caseContext, evidenceItems, nexusAnswers,
-  drafts, aiUsage, aiCredentials, entitlements, pendingCheckouts,
+  drafts, aiUsage, aiAttempts, aiCredentials, entitlements, pendingCheckouts,
 } from '@/db/schema'
 import type { ObjectStore } from '@/lib/storage/object-store'
 import { listOwnerDocuments, removeOwnerDocuments } from '@/lib/case-documents'
@@ -171,6 +171,11 @@ export async function deleteAccountData(
       .returning({ id: pendingCheckouts.id })).length
     counted.ai_credentials = (await tx.delete(aiCredentials).where(eq(aiCredentials.ownerId, ownerId))
       .returning({ id: aiCredentials.ownerId })).length
+    // Rate-limiting bookkeeping, not billing history, so no ledger guard stands
+    // in the way — but it is still owner-scoped data and "delete everything"
+    // has to mean everything.
+    counted.ai_attempts = (await tx.delete(aiAttempts).where(eq(aiAttempts.ownerId, ownerId))
+      .returning({ id: aiAttempts.id })).length
 
     // The five case-scoped tables disappear via ON DELETE CASCADE, which reports
     // nothing back — count them while they still exist so the receipt covers

@@ -11,8 +11,8 @@ import {
   credentialCreatedAt,
 } from '@/lib/ai/credentials'
 import { encryptSecret, decryptSecret } from '@/lib/ai/crypto'
-import { recordUsage, usageTotals } from '@/lib/ai/usage'
-import { checkAiLimits } from '@/lib/ai/limits'
+import { recordAttempt, recordUsage, usageTotals } from '@/lib/ai/usage'
+import { checkAiLimits, MANAGED_DAILY_CALL_CEILING } from '@/lib/ai/limits'
 
 afterAll(closeDb)
 
@@ -70,7 +70,9 @@ describe('ciphertext is bound to its owner', () => {
     const bob = freshOwner()
     const ciphertext = encryptSecret('sk-ant-alice', KEK, alice)
     expect(decryptSecret(ciphertext, KEK, alice)).toBe('sk-ant-alice')
-    expect(() => decryptSecret(ciphertext, KEK, bob)).toThrow()
+    // The AAD check specifically — not a length or parse failure that would also
+    // satisfy a bare toThrow().
+    expect(() => decryptSecret(ciphertext, KEK, bob)).toThrow(/unable to authenticate data/i)
   })
 })
 
@@ -90,21 +92,33 @@ describe('usage ledger', () => {
 describe('AI cost guardrails', () => {
   const usage = { task: 'ping', model: 'claude-opus-4-8', byok: false, inputTokens: 1, outputTokens: 1 }
 
+  /**
+   * The shared managed ledger is append-only and never reset between runs, so a
+   * long-lived database eventually holds enough tokens for the day to trip the
+   * GLOBAL ceiling on its own and turn every `{ allowed: true }` expectation
+   * below into a flake. Tests that assert a call is allowed give the global cap
+   * headroom no test fixture can reach.
+   */
+  const withGlobalHeadroom = () => {
+    process.env.AI_GLOBAL_DAILY_TOKEN_CAP = '999999999999'
+    resetEnvForTests()
+  }
+
   it('allows a call under the per-minute limit', async () => {
     process.env.AI_RATE_LIMIT_PER_MINUTE = '2'
-    resetEnvForTests()
+    withGlobalHeadroom()
     const alice = freshOwner()
-    await recordUsage(alice, usage)
+    await recordAttempt(alice, 'ping')
     expect(await checkAiLimits(alice, false)).toEqual({ allowed: true })
   })
 
   it('refuses at the per-minute limit, and only for the owner who hit it', async () => {
     process.env.AI_RATE_LIMIT_PER_MINUTE = '2'
-    resetEnvForTests()
+    withGlobalHeadroom()
     const alice = freshOwner()
     const bob = freshOwner()
-    await recordUsage(alice, usage)
-    await recordUsage(alice, usage)
+    await recordAttempt(alice, 'ping')
+    await recordAttempt(alice, 'ping')
     expect(await checkAiLimits(alice, false)).toEqual({
       allowed: false,
       error: expect.stringContaining('wait a minute'),
@@ -112,12 +126,28 @@ describe('AI cost guardrails', () => {
     expect(await checkAiLimits(bob, false)).toEqual({ allowed: true })
   })
 
+  it('counts ATTEMPTS, not completed calls', async () => {
+    // The whole point of the ai_attempts table: usage rows are written after the
+    // provider answers, so a caller whose calls all fail — or who fires them
+    // concurrently — would never accumulate any and would never be limited.
+    process.env.AI_RATE_LIMIT_PER_MINUTE = '2'
+    withGlobalHeadroom()
+    const alice = freshOwner()
+    await recordUsage(alice, usage)
+    await recordUsage(alice, usage)
+    await recordUsage(alice, usage)
+    expect(await checkAiLimits(alice, false)).toEqual({ allowed: true })
+    await recordAttempt(alice, 'ping')
+    await recordAttempt(alice, 'ping')
+    expect(await checkAiLimits(alice, false)).toMatchObject({ allowed: false })
+  })
+
   it('does not exempt BYOK from the per-minute limit', async () => {
     process.env.AI_RATE_LIMIT_PER_MINUTE = '2'
     resetEnvForTests()
     const alice = freshOwner()
-    await recordUsage(alice, { ...usage, byok: true })
-    await recordUsage(alice, { ...usage, byok: true })
+    await recordAttempt(alice, 'ping')
+    await recordAttempt(alice, 'ping')
     expect(await checkAiLimits(alice, true)).toMatchObject({ allowed: false })
   })
 
@@ -132,9 +162,26 @@ describe('AI cost guardrails', () => {
     })
   })
 
+  it('refuses at the managed daily CALL ceiling even when every call was tiny', async () => {
+    // The shape a pure token cap is slowest to catch: a thousand zero-token
+    // calls spend nothing measurable and still cost a thousand round trips.
+    withGlobalHeadroom()
+    const alice = freshOwner()
+    await db().insert(aiUsage).values(
+      Array.from({ length: MANAGED_DAILY_CALL_CEILING }, () => ({
+        ownerId: alice, task: 'ping', model: 'claude-opus-4-8',
+        byok: false, inputTokens: 0, outputTokens: 0,
+      })),
+    )
+    expect(await checkAiLimits(alice, false)).toEqual({
+      allowed: false,
+      error: expect.stringContaining('your own API key in AI settings'),
+    })
+  }, 30_000)
+
   it('exempts BYOK from the per-user managed daily cap', async () => {
     process.env.AI_MANAGED_DAILY_TOKEN_CAP = '10'
-    resetEnvForTests()
+    withGlobalHeadroom()
     const alice = freshOwner()
     await recordUsage(alice, { ...usage, inputTokens: 6, outputTokens: 5 })
     expect(await checkAiLimits(alice, true)).toEqual({ allowed: true })

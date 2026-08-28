@@ -24,8 +24,10 @@ vi.mock('@/lib/ai/provider', () => ({
 }))
 
 const mockRecordUsage = vi.fn(async (..._args: unknown[]) => {})
+const mockRecordAttempt = vi.fn(async (..._args: unknown[]) => {})
 vi.mock('@/lib/ai/usage', () => ({
   recordUsage: (...args: unknown[]) => mockRecordUsage(...args),
+  recordAttempt: (...args: unknown[]) => mockRecordAttempt(...args),
 }))
 
 const mockCheckAiLimits = vi.fn(async (..._args: unknown[]): Promise<AiLimitDecision> => ({ allowed: true }))
@@ -59,6 +61,7 @@ beforeEach(() => {
   mockResolveApiKey.mockImplementation(realKeyResolution)
   mockCreate.mockResolvedValue(PROVIDER_OK)
   mockCheckAiLimits.mockResolvedValue({ allowed: true })
+  mockRecordAttempt.mockResolvedValue(undefined)
   mockGetEncryptedKey.mockResolvedValue(null)
   mockIsEntitled.mockResolvedValue(true)
   process.env.ANTHROPIC_API_KEY = 'sk-managed'
@@ -78,12 +81,16 @@ describe('task dispatch', () => {
     const result = await executeAiTask(OWNER, 'draft_anything_you_want', {})
     expect(result).toMatchObject({ ok: false, status: 404 })
     expect(mockCheckAiLimits).not.toHaveBeenCalled()
+    expect(mockRecordAttempt).not.toHaveBeenCalled()
     expect(mockCreate).not.toHaveBeenCalled()
   })
 
   test('input the task rejects is a 400 before any spend', async () => {
     const result = await executeAiTask(OWNER, 'ping', { message: 42 })
     expect(result).toMatchObject({ ok: false, status: 400 })
+    // A request the task cannot even parse is not an attempt at the model, so it
+    // must not consume a rate-limit slot.
+    expect(mockRecordAttempt).not.toHaveBeenCalled()
     expect(mockCreate).not.toHaveBeenCalled()
   })
 })
@@ -97,6 +104,9 @@ describe('the freemium gate', () => {
     })
     expect(result).toMatchObject({ ok: false, status: 402 })
     expect(mockIsEntitled).toHaveBeenCalledWith(OWNER)
+    // Unauthorized for this task: no slot burned, so a veteran who has not paid
+    // cannot be rate-limited out of the free tasks by hammering a premium one.
+    expect(mockRecordAttempt).not.toHaveBeenCalled()
     expect(mockResolveApiKey).not.toHaveBeenCalled()
     expect(mockCreate).not.toHaveBeenCalled()
   })
@@ -126,6 +136,27 @@ describe('cost guardrails', () => {
     expect(mockResolveApiKey).not.toHaveBeenCalled()
     expect(mockCreate).not.toHaveBeenCalled()
     expect(mockRecordUsage).not.toHaveBeenCalled()
+    // The refused request is still an attempt: a caller cannot buy back slots by
+    // continuing to hammer a limiter that is already saying no.
+    expect(mockRecordAttempt).toHaveBeenCalledWith(OWNER, 'ping')
+  })
+
+  test('the attempt is recorded BEFORE the limiter reads the counter', async () => {
+    // The ordering is the fix. Counting after the model call would let N
+    // concurrent requests all read the same pre-burst count and all proceed;
+    // inserting first narrows the race to the width of one insert.
+    await runPing()
+    expect(mockRecordAttempt).toHaveBeenCalledTimes(1)
+    expect(mockCheckAiLimits).toHaveBeenCalledTimes(1)
+    expect(mockRecordAttempt.mock.invocationCallOrder[0])
+      .toBeLessThan(mockCheckAiLimits.mock.invocationCallOrder[0])
+  })
+
+  test('an attempt that cannot be recorded stops the request instead of running free', async () => {
+    mockRecordAttempt.mockRejectedValue(new Error('ai_attempts insert failed'))
+    await expect(runPing()).rejects.toThrow('ai_attempts insert failed')
+    expect(mockCheckAiLimits).not.toHaveBeenCalled()
+    expect(mockCreate).not.toHaveBeenCalled()
   })
 
   test('BYOK is judged from credential presence alone, without touching the key', async () => {
@@ -215,6 +246,9 @@ describe('provider failures', () => {
     mockCreate.mockRejectedValue(Object.assign(new Error('overloaded'), { status: 529 }))
     expect(await runPing()).toEqual({ ok: false, status: 502, error: 'AI provider error' })
     expect(mockRecordUsage).not.toHaveBeenCalled()
+    // Nothing was metered — but the attempt still stands. A caller that can make
+    // the provider fail must not get an unlimited supply of free retries.
+    expect(mockRecordAttempt).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -103,7 +103,7 @@ export async function saveNexusAnswer(
 ): Promise<void> {
   await assertCaseOwned(ownerId, caseId)
   const column = ANSWER_COLUMNS[key]
-  await getDb()
+  const rows = await getDb()
     .insert(nexusAnswers)
     .values({ caseId, ownerId, [column]: text })
     .onConflictDoUpdate({
@@ -111,4 +111,8 @@ export async function saveNexusAnswer(
       set: { [column]: text, updatedAt: new Date() },
       setWhere: eq(nexusAnswers.ownerId, ownerId),
     })
+    .returning({ id: nexusAnswers.id })
+  // A no-op conflict branch means the row belongs to another owner; losing an
+  // answer the veteran just typed must never pass for a save.
+  if (!rows.length) throw new Error('nexus_answers write affected no rows (owner mismatch)')
 }

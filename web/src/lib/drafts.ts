@@ -55,7 +55,7 @@ export async function saveGeneratedDraft(
 ): Promise<void> {
   await assertCaseOwned(ownerId, caseId)
   const now = new Date()
-  await getDb()
+  const rows = await getDb()
     .insert(drafts)
     .values({ caseId, ownerId, kind, content, edited: false, generatedAt: now })
     .onConflictDoUpdate({
@@ -63,6 +63,8 @@ export async function saveGeneratedDraft(
       set: { content, edited: false, generatedAt: now, updatedAt: now },
       setWhere: eq(drafts.ownerId, ownerId),
     })
+    .returning({ id: drafts.id })
+  if (!rows.length) throw new Error('drafts write affected no rows (owner mismatch)')
 }
 
 /** Writes the veteran's EDITED text (sets edited=true, preserves generated_at). */
@@ -73,7 +75,7 @@ export async function saveEditedDraft(
   content: string,
 ): Promise<void> {
   await assertCaseOwned(ownerId, caseId)
-  await getDb()
+  const rows = await getDb()
     .insert(drafts)
     .values({ caseId, ownerId, kind, content, edited: true })
     .onConflictDoUpdate({
@@ -81,4 +83,7 @@ export async function saveEditedDraft(
       set: { content, edited: true, updatedAt: new Date() },
       setWhere: eq(drafts.ownerId, ownerId),
     })
+    .returning({ id: drafts.id })
+  // The veteran's own words. Silently discarding them is the worst outcome here.
+  if (!rows.length) throw new Error('drafts write affected no rows (owner mismatch)')
 }

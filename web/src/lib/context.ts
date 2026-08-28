@@ -37,7 +37,7 @@ export async function saveCaseContext(ownerId: string, caseId: string, ctx: Case
     hasVaRating: ctx.hasVaRating,
     updatedAt: new Date(),
   }
-  await getDb()
+  const rows = await getDb()
     .insert(caseContext)
     .values({ caseId, ownerId, ...columns })
     .onConflictDoUpdate({
@@ -45,4 +45,8 @@ export async function saveCaseContext(ownerId: string, caseId: string, ctx: Case
       set: columns,
       setWhere: eq(caseContext.ownerId, ownerId),
     })
+    .returning({ id: caseContext.id })
+  // An owner-scoped `setWhere` that matches nothing is a no-op UPDATE, which
+  // otherwise looks exactly like a successful save. Refuse to report one.
+  if (!rows.length) throw new Error('case_context write affected no rows (owner mismatch)')
 }

@@ -30,6 +30,12 @@ export function decryptSecret(payloadBase64: string, kekBase64: string, aad: str
   const kek = Buffer.from(kekBase64, 'base64')
   if (kek.length !== 32) throw new Error('KEK must be 32 bytes (base64-encoded)')
   const payload = Buffer.from(payloadBase64, 'base64')
+  // Below iv + tag + one byte of ciphertext the subarrays below start lying:
+  // the IV and the tag overlap, and the ciphertext slice comes back empty. Node
+  // then fails with whatever it happens to fail with (or, for a short tag, an
+  // error about tag length), which reads like a crypto problem rather than the
+  // truncated input it is. Reject the shape up front.
+  if (payload.length < IV_LEN + TAG_LEN + 1) throw new Error('malformed ciphertext')
   const iv = payload.subarray(0, IV_LEN)
   const tag = payload.subarray(payload.length - TAG_LEN)
   const ct = payload.subarray(IV_LEN, payload.length - TAG_LEN)

@@ -17,7 +17,13 @@ import type { Db } from '@/db'
 const deleted = vi.fn()
 let insertReturning: Array<Record<string, unknown>> = []
 let existingEntitlement: Array<{ stripeSessionId: string }> = []
+/** What the second lookup finds: this session id already spent by ANOTHER owner. */
+let sessionClaimedElsewhere: Array<{ id: string }> = []
+let selectCall = 0
 
+// grantEntitlement makes two different owner-scoped lookups in the conflict
+// branch, so the stub answers them in order rather than handing both the same
+// rows — which would make the second lookup vacuously true.
 const fakeDb = {
   insert: () => ({
     values: () => ({
@@ -25,7 +31,11 @@ const fakeDb = {
     }),
   }),
   select: () => ({
-    from: () => ({ where: () => ({ limit: async () => existingEntitlement }) }),
+    from: () => ({
+      where: () => ({
+        limit: async () => (selectCall++ === 0 ? existingEntitlement : sessionClaimedElsewhere),
+      }),
+    }),
   }),
   delete: () => ({ where: async () => deleted() }),
 } as unknown as Db
@@ -38,6 +48,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   insertReturning = []
   existingEntitlement = []
+  sessionClaimedElsewhere = []
+  selectCall = 0
 })
 
 describe('grantEntitlement', () => {
@@ -58,6 +70,17 @@ describe('grantEntitlement', () => {
     insertReturning = [{ id: 'ent-1' }]
     await expect(grantEntitlement('owner-1', 'cs_new')).resolves.toBe('granted')
     expect(deleted).toHaveBeenCalledTimes(1)
+  })
+
+  test("refuses a session id already spent by another owner rather than warning", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    existingEntitlement = [{ stripeSessionId: 'cs_first' }]
+    sessionClaimedElsewhere = [{ id: 'ent-someone-else' }]
+
+    await expect(grantEntitlement('owner-1', 'cs_second'))
+      .rejects.toThrow('stripe session belongs to another account')
+    expect(warn).not.toHaveBeenCalled()
+    expect(deleted).not.toHaveBeenCalled() // no pending row is cleared on a rejected replay
   })
 
   test('throws when nothing was inserted and the owner has no entitlement', async () => {
