@@ -1,4 +1,4 @@
-import { getEnv, requireEnv } from '@/lib/env'
+import { getEnv } from '@/lib/env'
 
 export class KeycloakAdminUnavailable extends Error {}
 
@@ -23,7 +23,7 @@ export function createKeycloakAdmin(fetchImpl: Fetch = fetch): KeycloakAdmin {
   const base = (env.KEYCLOAK_ADMIN_BASE_URL ?? env.QAVREN_AUTH_URL).replace(/\/+$/, '')
   const realm = env.QAVREN_REALM
   const clientId = env.QAVREN_ADMIN_CLIENT_ID
-  const clientSecret = requireEnv('QAVREN_ADMIN_CLIENT_SECRET')
+  const clientSecret = env.QAVREN_ADMIN_CLIENT_SECRET
 
   return {
     async getToken() {
@@ -32,6 +32,7 @@ export function createKeycloakAdmin(fetchImpl: Fetch = fetch): KeycloakAdmin {
         headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }),
         redirect: 'manual',
+        signal: AbortSignal.timeout(10_000),
       })
       if (res.status !== 200) throw new Error(`keycloak token endpoint returned ${res.status}`)
       const json = (await res.json()) as { access_token?: string }
@@ -39,10 +40,12 @@ export function createKeycloakAdmin(fetchImpl: Fetch = fetch): KeycloakAdmin {
       return json.access_token
     },
     async deleteUser(sub, token) {
+      if (!sub || !sub.trim()) throw new Error('keycloak deleteUser called without a sub')
       const res = await fetchImpl(`${base}/admin/realms/${realm}/users/${encodeURIComponent(sub)}`, {
         method: 'DELETE',
         headers: { authorization: `Bearer ${token}` },
         redirect: 'manual',
+        signal: AbortSignal.timeout(10_000),
       })
       if (res.status === 204 || res.status === 200) return
       if (res.status === 404) {

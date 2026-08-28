@@ -67,29 +67,33 @@ describe('keycloak-admin', () => {
       expect(url).toBe('https://auth.recharacter.us/realms/recharacter/protocol/openid-connect/token')
       expect(init?.method).toBe('POST')
       expect(init?.redirect).toBe('manual')
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
+      expect((init?.headers as Record<string, string>)['content-type']).toBe(
+        'application/x-www-form-urlencoded',
+      )
       const body = init?.body as URLSearchParams
       const bodyStr = body.toString()
       expect(bodyStr).toContain('grant_type=client_credentials')
       expect(bodyStr).toContain('client_id=recharacter-admin-svc')
-      expect(bodyStr).toContain(encodeURIComponent(SECRET))
+      expect(new URLSearchParams(bodyStr).get('client_secret')).toBe(SECRET)
     })
 
     it('throws on a 302 redirect instead of following it', async () => {
       const fetchImpl = vi.fn(async () => new Response(null, { status: 302 }))
       const admin = createKeycloakAdmin(fetchImpl)
-      await expect(admin.getToken()).rejects.toThrow()
+      await expect(admin.getToken()).rejects.toThrow('keycloak token endpoint returned 302')
     })
 
     it('throws on 401', async () => {
       const fetchImpl = vi.fn(async () => new Response('unauthorized', { status: 401 }))
       const admin = createKeycloakAdmin(fetchImpl)
-      await expect(admin.getToken()).rejects.toThrow()
+      await expect(admin.getToken()).rejects.toThrow('keycloak token endpoint returned 401')
     })
 
     it('throws on a 200 body missing access_token', async () => {
       const fetchImpl = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }))
       const admin = createKeycloakAdmin(fetchImpl)
-      await expect(admin.getToken()).rejects.toThrow()
+      await expect(admin.getToken()).rejects.toThrow('no access_token')
     })
   })
 
@@ -110,6 +114,7 @@ describe('keycloak-admin', () => {
       expect(init?.method).toBe('DELETE')
       expect((init?.headers as Record<string, string>).authorization).toBe('Bearer t')
       expect(init?.redirect).toBe('manual')
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
     })
 
     it('resolves on 200', async () => {
@@ -118,7 +123,25 @@ describe('keycloak-admin', () => {
       await expect(admin.deleteUser('abc', 't')).resolves.toBeUndefined()
     })
 
+    it('rejects without calling fetch when sub is an empty string', async () => {
+      const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }))
+      const admin = createKeycloakAdmin(fetchImpl)
+      await expect(admin.deleteUser('', 't')).rejects.toThrow('keycloak deleteUser called without a sub')
+      expect(fetchImpl).not.toHaveBeenCalled()
+    })
+
+    it('rejects without calling fetch when sub is undefined', async () => {
+      const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }))
+      const admin = createKeycloakAdmin(fetchImpl)
+      await expect(admin.deleteUser(undefined as unknown as string, 't')).rejects.toThrow(
+        'keycloak deleteUser called without a sub',
+      )
+      expect(fetchImpl).not.toHaveBeenCalled()
+    })
+
     it('resolves and logs at error level on 404, naming the sub and realm', async () => {
+      process.env.QAVREN_REALM = 'realm-xyz'
+      resetEnvForTests()
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
       const fetchImpl = vi.fn(async () => new Response(null, { status: 404 }))
       const admin = createKeycloakAdmin(fetchImpl)
@@ -127,19 +150,19 @@ describe('keycloak-admin', () => {
       expect(errorSpy).toHaveBeenCalledTimes(1)
       const message = errorSpy.mock.calls[0].join(' ')
       expect(message).toContain('missing-sub')
-      expect(message).toContain('recharacter')
+      expect(message).toContain('realm-xyz')
     })
 
     it('throws on 403', async () => {
       const fetchImpl = vi.fn(async () => new Response(null, { status: 403 }))
       const admin = createKeycloakAdmin(fetchImpl)
-      await expect(admin.deleteUser('abc', 't')).rejects.toThrow()
+      await expect(admin.deleteUser('abc', 't')).rejects.toThrow('keycloak user delete returned 403')
     })
 
     it('throws on 500', async () => {
       const fetchImpl = vi.fn(async () => new Response(null, { status: 500 }))
       const admin = createKeycloakAdmin(fetchImpl)
-      await expect(admin.deleteUser('abc', 't')).rejects.toThrow()
+      await expect(admin.deleteUser('abc', 't')).rejects.toThrow('keycloak user delete returned 500')
     })
   })
 
