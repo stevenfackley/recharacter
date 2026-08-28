@@ -9,6 +9,13 @@ BEGIN
   END IF;
 END $$;
 --> statement-breakpoint
+CREATE TABLE "recharacter"."ai_attempts" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"owner_id" uuid NOT NULL,
+	"task" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "recharacter"."ai_credentials" (
 	"owner_id" uuid PRIMARY KEY NOT NULL,
 	"encrypted_key" text NOT NULL,
@@ -45,7 +52,8 @@ CREATE TABLE "recharacter"."cases" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"owner_id" uuid NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "cases_id_owner_key" UNIQUE("id","owner_id")
 );
 --> statement-breakpoint
 CREATE TABLE "recharacter"."drafts" (
@@ -125,11 +133,18 @@ CREATE TABLE "recharacter"."service_facts" (
 );
 --> statement-breakpoint
 ALTER TABLE "recharacter"."case_context" ADD CONSTRAINT "case_context_case_id_cases_id_fk" FOREIGN KEY ("case_id") REFERENCES "recharacter"."cases"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "recharacter"."case_context" ADD CONSTRAINT "case_context_case_owner_fk" FOREIGN KEY ("case_id","owner_id") REFERENCES "recharacter"."cases"("id","owner_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "recharacter"."drafts" ADD CONSTRAINT "drafts_case_id_cases_id_fk" FOREIGN KEY ("case_id") REFERENCES "recharacter"."cases"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "recharacter"."drafts" ADD CONSTRAINT "drafts_case_owner_fk" FOREIGN KEY ("case_id","owner_id") REFERENCES "recharacter"."cases"("id","owner_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "recharacter"."evidence_items" ADD CONSTRAINT "evidence_items_case_id_cases_id_fk" FOREIGN KEY ("case_id") REFERENCES "recharacter"."cases"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "recharacter"."evidence_items" ADD CONSTRAINT "evidence_items_case_owner_fk" FOREIGN KEY ("case_id","owner_id") REFERENCES "recharacter"."cases"("id","owner_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "recharacter"."nexus_answers" ADD CONSTRAINT "nexus_answers_case_id_cases_id_fk" FOREIGN KEY ("case_id") REFERENCES "recharacter"."cases"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "recharacter"."nexus_answers" ADD CONSTRAINT "nexus_answers_case_owner_fk" FOREIGN KEY ("case_id","owner_id") REFERENCES "recharacter"."cases"("id","owner_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "recharacter"."service_facts" ADD CONSTRAINT "service_facts_case_id_cases_id_fk" FOREIGN KEY ("case_id") REFERENCES "recharacter"."cases"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "recharacter"."service_facts" ADD CONSTRAINT "service_facts_case_owner_fk" FOREIGN KEY ("case_id","owner_id") REFERENCES "recharacter"."cases"("id","owner_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "ai_attempts_owner_created_idx" ON "recharacter"."ai_attempts" USING btree ("owner_id","created_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "ai_usage_owner_created_idx" ON "recharacter"."ai_usage" USING btree ("owner_id","created_at" DESC NULLS LAST);--> statement-breakpoint
+CREATE INDEX "ai_usage_managed_created_idx" ON "recharacter"."ai_usage" USING btree ("created_at") WHERE "recharacter"."ai_usage"."byok" = false;--> statement-breakpoint
 CREATE INDEX "case_context_owner_idx" ON "recharacter"."case_context" USING btree ("owner_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "cases_one_per_owner" ON "recharacter"."cases" USING btree ("owner_id");--> statement-breakpoint
 CREATE INDEX "drafts_owner_idx" ON "recharacter"."drafts" USING btree ("owner_id");--> statement-breakpoint
