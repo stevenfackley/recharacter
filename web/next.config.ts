@@ -33,6 +33,25 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     '/api/packet': ['./src/lib/packet/fonts/**/*'],
   },
+  // Baseline security headers on every response. Referrer-Policy is the one that
+  // is not boilerplate here: case URLs carry ?error= codes and ?session_id=, and
+  // a Referer header would hand those — plus the fact that this veteran is on a
+  // discharge-upgrade page at all — to every third-party host they click through
+  // to. no-referrer sends nothing, anywhere.
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;
