@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getToken } from 'next-auth/jwt'
 import { issuerFor } from '@qavren/auth-next'
 import { signOut } from '@/auth'
-import { getEnv } from '@/lib/env'
+import { getEnv, requireEnv } from '@/lib/env'
 
 /**
  * Sign out of ReCharacter *and* of the realm.
@@ -14,7 +14,8 @@ import { getEnv } from '@/lib/env'
  */
 export async function POST(req: Request) {
   const env = getEnv()
-  const appOrigin = new URL(env.APP_BASE_URL).origin
+  const appBaseUrl = requireEnv('APP_BASE_URL')
+  const appOrigin = new URL(appBaseUrl).origin
 
   // POST-only plus two cross-site checks: a cross-site form must not be able to
   // log someone out mid-petition. A same-origin form navigation sends no Origin,
@@ -32,7 +33,7 @@ export async function POST(req: Request) {
   // name (`__Secure-authjs.session-token` over HTTPS, `authjs.session-token`
   // otherwise) from `secureCookie`, and reassembles chunked cookies. It must run
   // before signOut clears the session.
-  const secure = new URL(env.APP_BASE_URL).protocol === 'https:'
+  const secure = new URL(appBaseUrl).protocol === 'https:'
   const jwt = await getToken({ req, secret: process.env.AUTH_SECRET ?? '', secureCookie: secure })
   const idToken = typeof jwt?.idToken === 'string' ? jwt.idToken : undefined
 
@@ -41,7 +42,7 @@ export async function POST(req: Request) {
   const end = new URL(
     `${issuerFor(env.QAVREN_REALM, env.QAVREN_AUTH_URL)}/protocol/openid-connect/logout`,
   )
-  end.searchParams.set('post_logout_redirect_uri', `${env.APP_BASE_URL}/login`)
+  end.searchParams.set('post_logout_redirect_uri', `${appBaseUrl}/login`)
   if (idToken) end.searchParams.set('id_token_hint', idToken)
   // Keycloak requires one of id_token_hint or client_id to honour the
   // post-logout redirect; without either it prompts for confirmation instead.

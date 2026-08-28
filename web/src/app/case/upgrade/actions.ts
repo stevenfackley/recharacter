@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { requireSessionUser } from '@/lib/session'
-import { getEnv } from '@/lib/env'
+import { getEnv, requireEnv } from '@/lib/env'
 import { recordPendingCheckout } from '@/lib/billing'
 import { getStripeClient, restorePurchase } from '@/lib/billing-verify'
 
@@ -29,8 +29,8 @@ export async function startCheckout() {
     mode: 'payment',
     line_items: [{ price: priceId, quantity: 1 }],
     client_reference_id: user.id,
-    success_url: `${env.APP_BASE_URL}/case/upgrade?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${env.APP_BASE_URL}/case/upgrade?canceled=1`,
+    success_url: `${requireEnv('APP_BASE_URL')}/case/upgrade?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${requireEnv('APP_BASE_URL')}/case/upgrade?canceled=1`,
   })
 
   await recordPendingCheckout(user.id, session.id)

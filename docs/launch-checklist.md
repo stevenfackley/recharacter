@@ -13,7 +13,7 @@ Everything between code-complete (all 8 roadmap plans merged) and public launch.
 
 ## 2. Product gaps accepted at MVP (decide: fix now or ship without)
 
-- [x] One-click data delete/export (`docs/legal-posture.md` promises it) — shipped 2026-07-10 (PR #17, deployed): Settings → Your data (`/settings/data`); export is RLS-scoped JSON, deletion sweeps storage then cascades via `auth.admin.deleteUser`.
+- [x] One-click data delete/export (`docs/legal-posture.md` promises it) — shipped 2026-07-10 (PR #17, deployed): Settings → Your data (`/settings/data`); since the 2026-08-27 re-platform: export is owner-scoped JSON; deletion proves the Keycloak service account first, deletes every row in one transaction (cascade verified), sweeps the R2 prefix, then deletes the Keycloak user.
 - [x] Long-lived database superkey on the prod box — retired by the Plan 09 re-platform (2026-08-27): account deletion now runs through the `recharacter-admin-svc` Keycloak service account (`manage-users` only), not a database superkey. See the infra items below for the cutover secrets this introduces.
 - [ ] Requested-characterization field in intake (worksheet currently renders bracketed guidance).
 - [ ] Document list/delete UI for uploaded records (bucket + policies exist; no UI).

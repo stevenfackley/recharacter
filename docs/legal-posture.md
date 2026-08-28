@@ -35,7 +35,7 @@ ReCharacter is a **document-assembly and information tool**. The veteran makes e
 
 ## Data sensitivity
 
-Petitions contain mental-health histories and trauma narratives — the most sensitive data class this workspace handles. Commitments: RLS on every table (isolation proven by tests), encrypted document storage, encrypted BYOK keys (AES-256-GCM, no plaintext at rest), explicit retention + one-click delete/export (Plan 04+), no AI training on user content.
+Petitions contain mental-health histories and trauma narratives — the most sensitive data class this workspace handles. Commitments: every database statement and every object key is scoped to the signed-in owner in code, with composite foreign keys making cross-owner rows unrepresentable (isolation proven by two-user integration suites in CI — see `architecture.md` §Owner-scoping invariant), encrypted document storage, encrypted BYOK keys (AES-256-GCM bound to the owner, no plaintext at rest), explicit retention + one-click delete/export (shipped: Settings → Your data), no AI training on user content.
 
 ## Precedent worth remembering
 

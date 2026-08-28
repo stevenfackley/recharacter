@@ -38,7 +38,9 @@ const schema = z.object({
   AUTH_SECRET: z.string().min(32).optional(),
   AUTH_URL: z.string().url().optional(),
   KEYCLOAK_ADMIN_BASE_URL: z.string().url().optional(),
-  APP_BASE_URL: z.string().url().default('http://localhost:3000'),
+  // No default on purpose: a localhost fallback in prod would send Keycloak and
+  // Stripe redirects to localhost. Call sites use requireEnv('APP_BASE_URL').
+  APP_BASE_URL: z.string().url().optional(),
   // Object storage: Cloudflare R2 in prod, MinIO via S3_ENDPOINT locally/CI.
   R2_ACCOUNT_ID: z.string().min(1).optional(),
   R2_ACCESS_KEY_ID: z.string().min(1).optional(),

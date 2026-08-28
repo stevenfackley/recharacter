@@ -10,10 +10,10 @@ ReCharacter walks a veteran through building a **mental-health-based discharge-u
 
 | Plan | Scope | Status |
 |------|-------|--------|
-| 01 | Rules engine + routing API (.NET) | ✅ Merged — 24 tests |
-| 02 | Auth & persistence (Keycloak via qavren-auth + Postgres schema on qavren-db, owner-scoped queries) | ✅ Built — 7 tests, in review |
-| 03 | AI gateway (managed proxy + BYOK) | 📝 Drafted |
-| 04–08 | Intake/extraction · Evidence/coaching · Nexus/draft · Packet export · Billing | Roadmap |
+| 01 | Rules engine + routing API (.NET) | ✅ Merged |
+| 02 | Auth & persistence (Keycloak via qavren-auth + Postgres schema on qavren-db, owner-scoped queries) | ✅ Merged — re-platformed by 09 |
+| 03 | AI gateway (managed proxy + BYOK) | ✅ Merged |
+| 04–08 | Intake/extraction · Evidence/coaching · Nexus/draft · Packet export · Billing | ✅ Merged 2026-07-06 |
 | 09 | Re-platform onto qavren-auth + qavren-db + R2 | ✅ Built — pending cutover |
 
 Full roadmap: [`docs/superpowers/plans/2026-07-05-recharacter-ROADMAP.md`](docs/superpowers/plans/2026-07-05-recharacter-ROADMAP.md)

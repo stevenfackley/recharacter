@@ -20,6 +20,7 @@ const ERRORS = {
   upload_failed: 'Upload failed — try again shortly.',
   save_failed: 'Could not save your facts — try again shortly.',
   extract_failed: 'We could not read the document automatically — enter your facts below.',
+  rate_limited: 'Too many AI requests — wait a minute and upload again, or enter your facts below.',
   byok_key_rejected:
     'Your AI provider rejected your API key — check it in AI settings, or enter your facts below.',
   byok_key_unreadable:

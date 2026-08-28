@@ -24,6 +24,7 @@ import { serviceFactsSchema, saveServiceFacts, confirmServiceFacts } from '@/lib
  * and only the second is fixed by re-entering the key.
  */
 function extractFailureCode(result: Extract<AiTaskResult, { ok: false }>): string {
+  if (result.status === 429) return 'rate_limited'
   if (result.byokKeyRejected) {
     return result.status === 503 ? 'byok_key_unreadable' : 'byok_key_rejected'
   }

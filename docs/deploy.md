@@ -50,7 +50,8 @@ docker login ghcr.io -u stevenfackley
 # Fetch the compose file (or scp it):
 curl -fsSL https://raw.githubusercontent.com/stevenfackley/recharacter/main/deploy/docker-compose.yml -o docker-compose.yml
 # ^ private repo: use `gh api` or scp instead if curl 404s.
-cp env.example .env   # then fill every value (see deploy/env.example — the contract below)
+curl -fsSL https://raw.githubusercontent.com/stevenfackley/recharacter/main/deploy/env.example -o env.example
+cp env.example .env   # then fill every value (the contract below)
 docker compose up -d
 ```
 
@@ -75,7 +76,7 @@ Push to `main` (or run the Deploy workflow manually) →
 2. **Migrate**: a `migrate` job checks out the repo, `npm ci`, then `npm run db:migrate` against
    `DATABASE_URL_MIGRATE` — **fails closed**: if the secret is unset, the job exits non-zero before
    running anything, and `deploy` never starts (it depends on `migrate` succeeding).
-3. **Deploy**: SSH to the box, upsert `IMAGE_TAG=<sha>` into `.env`, `docker compose pull && docker compose up -d`.
+3. **Deploy**: scp `deploy/docker-compose.yml` to the box (every deploy — the box never keeps a stale compose file), SSH: upsert `IMAGE_TAG=<sha>` into `.env`, `docker compose pull && docker compose up -d --wait --wait-timeout 180` (the healthchecks gate the image prune), then curl `https://recharacter.us/login` until it returns 200.
 
 `docker-compose.yml` pins both app images to `${IMAGE_TAG:-latest}`, so every deploy runs an
 immutable, known SHA rather than whatever `:latest` happened to resolve to at pull time. Both
