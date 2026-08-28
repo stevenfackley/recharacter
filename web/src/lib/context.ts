@@ -1,5 +1,8 @@
 import { z } from 'zod'
-import { createClient } from '@/lib/supabase/server'
+import { and, eq } from 'drizzle-orm'
+import { getDb } from '@/db'
+import { caseContext } from '@/db/schema'
+import { assertCaseOwned } from '@/lib/cases'
 import type { CaseContext } from '@/lib/evidence'
 
 export const caseContextSchema = z.object({
@@ -9,35 +12,37 @@ export const caseContextSchema = z.object({
   hasVaRating: z.boolean(),
 })
 
-export async function getCaseContext(caseId: string): Promise<CaseContext | null> {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from('case_context').select('*').eq('case_id', caseId).maybeSingle()
-  if (!data) return null
+export async function getCaseContext(ownerId: string, caseId: string): Promise<CaseContext | null> {
+  const [row] = await getDb()
+    .select()
+    .from(caseContext)
+    .where(and(eq(caseContext.caseId, caseId), eq(caseContext.ownerId, ownerId)))
+    .limit(1)
+  if (!row) return null
   return {
-    conditionCategory: data.condition_category,
-    mstInvolved: data.mst_involved,
-    treatedInService: data.treated_in_service,
-    hasVaRating: data.has_va_rating,
+    // Constrained by case_context_condition_category_check; drizzle sees plain text.
+    conditionCategory: row.conditionCategory as CaseContext['conditionCategory'],
+    mstInvolved: row.mstInvolved,
+    treatedInService: row.treatedInService,
+    hasVaRating: row.hasVaRating,
   }
 }
 
-export async function saveCaseContext(caseId: string, ctx: CaseContext): Promise<void> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { error } = await supabase.from('case_context').upsert(
-    {
-      case_id: caseId,
-      owner_id: user.id,
-      condition_category: ctx.conditionCategory,
-      mst_involved: ctx.mstInvolved,
-      treated_in_service: ctx.treatedInService,
-      has_va_rating: ctx.hasVaRating,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'case_id' },
-  )
-  if (error) throw error
+export async function saveCaseContext(ownerId: string, caseId: string, ctx: CaseContext): Promise<void> {
+  await assertCaseOwned(ownerId, caseId)
+  const columns = {
+    conditionCategory: ctx.conditionCategory,
+    mstInvolved: ctx.mstInvolved,
+    treatedInService: ctx.treatedInService,
+    hasVaRating: ctx.hasVaRating,
+    updatedAt: new Date(),
+  }
+  await getDb()
+    .insert(caseContext)
+    .values({ caseId, ownerId, ...columns })
+    .onConflictDoUpdate({
+      target: caseContext.caseId,
+      set: columns,
+      setWhere: eq(caseContext.ownerId, ownerId),
+    })
 }

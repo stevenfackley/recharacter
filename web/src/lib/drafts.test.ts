@@ -1,9 +1,4 @@
-import { describe, expect, test, vi } from 'vitest'
-
-// drafts.ts imports the server Supabase client at module level; the pure
-// confirm-gate under test never touches it.
-vi.mock('@/lib/supabase/server', () => ({ createClient: vi.fn() }))
-
+import { describe, expect, test } from 'vitest'
 import { regenerateAllowedFor } from '@/lib/drafts'
 
 describe('regenerateAllowedFor (the regeneration confirm-gate)', () => {

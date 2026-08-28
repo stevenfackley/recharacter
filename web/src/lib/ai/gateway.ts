@@ -1,9 +1,10 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
 import { getTask } from '@/lib/ai/tasks'
 import { checkAiLimits } from '@/lib/ai/limits'
+import { getEncryptedKey } from '@/lib/ai/credentials'
 import { resolveApiKey, createAnthropicClient } from '@/lib/ai/provider'
 import { recordUsage } from '@/lib/ai/usage'
 import { isEntitled } from '@/lib/billing'
+import { getEnv } from '@/lib/env'
 
 export type AiTaskResult =
   | { ok: true; data: unknown }
@@ -12,20 +13,21 @@ export type AiTaskResult =
       status: 400 | 402 | 404 | 422 | 429 | 502 | 503
       error: string
       /**
-       * True when the provider rejected the user's OWN key (BYOK + 401/403).
-       * Callers must not tell the veteran to "try again" — a retry can never
-       * succeed until the key is fixed in AI settings (issue #9).
+       * True when the user's OWN key is the problem — the provider rejected it
+       * (BYOK + 401/403), or it no longer decrypts. Callers must not tell the
+       * veteran to "try again": a retry can never succeed until the key is fixed
+       * in AI settings (issue #9).
        */
       byokKeyRejected?: boolean
     }
 
 /**
  * The single execution path for every AI call (used by the API route AND by
- * server actions). Caller must have already authenticated the user.
+ * server actions). The caller has already authenticated the user and passes
+ * their owner id; every lookup below is scoped to it.
  */
 export async function executeAiTask(
-  supabase: SupabaseClient,
-  userId: string,
+  ownerId: string,
   taskName: string,
   input: unknown,
 ): Promise<AiTaskResult> {
@@ -40,29 +42,47 @@ export async function executeAiTask(
   }
 
   if (task.premium) {
-    const entitled = await isEntitled(supabase, userId)
+    const entitled = await isEntitled(ownerId)
     if (!entitled) {
       return { ok: false, status: 402, error: 'This feature needs the case unlock or your own API key' }
     }
   }
 
-  const { data: credential } = await supabase
-    .from('ai_credentials').select('encrypted_key').eq('owner_id', userId).maybeSingle()
+  const ciphertext = await getEncryptedKey(ownerId)
 
   // Guardrails run before key decryption or any provider call. Credential
   // presence is what decides BYOK (mirrors resolveApiKey), so the cap exemption
   // can be judged without touching the key itself.
-  const limit = await checkAiLimits(supabase, userId, Boolean(credential?.encrypted_key))
+  const limit = await checkAiLimits(ownerId, Boolean(ciphertext))
   if (!limit.allowed) return { ok: false, status: 429, error: limit.error }
+
+  const env = getEnv()
+  if (ciphertext && !env.AI_KEY_ENCRYPTION_SECRET) {
+    // Our misconfiguration, not their key: do NOT send them off to re-enter a
+    // key that is fine.
+    console.error('BYOK credential present but AI_KEY_ENCRYPTION_SECRET is unset')
+    return { ok: false, status: 503, error: 'AI key unavailable' }
+  }
 
   let key
   try {
     key = resolveApiKey({
-      encryptedByokKey: credential?.encrypted_key ?? null,
-      kek: process.env.AI_KEY_ENCRYPTION_SECRET!,
-      managedKey: process.env.ANTHROPIC_API_KEY,
+      encryptedByokKey: ciphertext,
+      kek: env.AI_KEY_ENCRYPTION_SECRET ?? '',
+      // The ciphertext is bound to its owner; decryption under anyone else's id
+      // fails rather than yielding a usable key.
+      aad: ownerId,
+      managedKey: env.ANTHROPIC_API_KEY,
     })
   } catch {
+    if (ciphertext) {
+      return {
+        ok: false,
+        status: 503,
+        error: 'Your saved API key could not be read — re-enter it in AI settings',
+        byokKeyRejected: true,
+      }
+    }
     return { ok: false, status: 503, error: 'AI key unavailable' }
   }
 
@@ -100,13 +120,12 @@ export async function executeAiTask(
   }
 
   // Tokens are spent the moment the provider returns — meter BEFORE validation.
-  await recordUsage(supabase, {
-    owner_id: userId,
+  await recordUsage(ownerId, {
     task: task.name,
     model: task.model,
     byok: key.byok,
-    input_tokens: response.usage.input_tokens,
-    output_tokens: response.usage.output_tokens,
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
   })
 
   if (response.stop_reason === 'refusal') {

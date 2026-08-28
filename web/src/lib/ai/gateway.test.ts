@@ -1,18 +1,22 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { resetEnvForTests } from '@/lib/env'
+import type { AiLimitDecision } from '@/lib/ai/limits'
 
 /**
- * Gateway guardrails: the per-user sliding-window request limit and the
- * managed-tier daily token cap. Both are enforced in executeAiTask BEFORE key
- * resolution and the provider call — a limited request must cost nothing.
- * Lookups fail OPEN (the limiter protects spend, not security).
+ * Gateway ordering. The guardrails, the entitlement check and key resolution
+ * each gate the provider call, and the order matters: a refused request must
+ * cost nothing — no decryption, no provider round-trip, no metering.
+ *
+ * The limit RULES themselves (windows, caps, fail-open) are proven against
+ * Postgres in tests/ai-scoping.integration.test.ts; here checkAiLimits is a
+ * stub, so what is under test is what the gateway does with its verdict.
  */
 
-const mockResolveApiKey = vi.fn((opts: { encryptedByokKey: string | null }) =>
+const realKeyResolution = (opts: { encryptedByokKey: string | null }) =>
   opts.encryptedByokKey
     ? { apiKey: 'byok-key', byok: true }
-    : { apiKey: 'managed-key', byok: false },
-)
+    : { apiKey: 'managed-key', byok: false }
+const mockResolveApiKey = vi.fn(realKeyResolution)
 const mockCreate = vi.fn()
 vi.mock('@/lib/ai/provider', () => ({
   resolveApiKey: (opts: { encryptedByokKey: string | null }) => mockResolveApiKey(opts),
@@ -24,7 +28,23 @@ vi.mock('@/lib/ai/usage', () => ({
   recordUsage: (...args: unknown[]) => mockRecordUsage(...args),
 }))
 
-vi.mock('@/lib/billing', () => ({ isEntitled: async () => true }))
+const mockCheckAiLimits = vi.fn(async (..._args: unknown[]): Promise<AiLimitDecision> => ({ allowed: true }))
+vi.mock('@/lib/ai/limits', () => ({
+  checkAiLimits: (...args: unknown[]) => mockCheckAiLimits(...args),
+}))
+
+const mockGetEncryptedKey = vi.fn(async (_ownerId: string): Promise<string | null> => null)
+vi.mock('@/lib/ai/credentials', () => ({
+  getEncryptedKey: (ownerId: string) => mockGetEncryptedKey(ownerId),
+}))
+
+const mockIsEntitled = vi.fn(async (_ownerId: string) => true)
+vi.mock('@/lib/billing', () => ({ isEntitled: (ownerId: string) => mockIsEntitled(ownerId) }))
+
+import { executeAiTask } from './gateway'
+
+const OWNER = '11111111-1111-4111-8111-111111111111'
+const KEK = Buffer.alloc(32).toString('base64')
 
 const PROVIDER_OK = {
   stop_reason: 'end_turn',
@@ -32,174 +52,190 @@ const PROVIDER_OK = {
   content: [{ type: 'text', text: JSON.stringify({ ok: true, echo: 'hello' }) }],
 }
 
-type UsageRow = { input_tokens: number; output_tokens: number }
-
-/**
- * The two ai_usage guardrail queries are told apart the same way PostgREST sees
- * them: head:true is the request-window counter, the row select is the managed
- * token sum. todaySpy proves the cap query does (not) run.
- */
-function stubClient(opts: {
-  byokCredential?: boolean
-  lastMinute?: { count: number | null; error?: unknown }
-  today?: { rows?: UsageRow[]; count?: number; error?: unknown }
-}) {
-  const todaySpy = vi.fn()
-  const client = {
-    from: (table: string) => {
-      if (table === 'ai_credentials') {
-        return {
-          select: () => ({
-            eq: () => ({
-              maybeSingle: async () => ({
-                data: opts.byokCredential ? { encrypted_key: 'enc' } : null,
-              }),
-            }),
-          }),
-        }
-      }
-      return {
-        select: (_cols: string, sopts?: { head?: boolean }) => {
-          let result: Record<string, unknown>
-          if (sopts?.head) {
-            result = { count: opts.lastMinute?.count ?? 0, error: opts.lastMinute?.error ?? null }
-          } else {
-            todaySpy()
-            const rows = opts.today?.rows ?? []
-            result = {
-              data: rows,
-              count: opts.today?.count ?? rows.length,
-              error: opts.today?.error ?? null,
-            }
-          }
-          const builder: { eq: () => unknown; gte: () => Promise<unknown> } = {
-            eq: () => builder,
-            gte: async () => result,
-          }
-          return builder
-        },
-      }
-    },
-  }
-  return { client: client as unknown as SupabaseClient, todaySpy }
-}
-
-async function runPing(client: SupabaseClient) {
-  const { executeAiTask } = await import('./gateway')
-  return executeAiTask(client, 'user-1', 'ping', { message: 'hello' })
-}
+const runPing = () => executeAiTask(OWNER, 'ping', { message: 'hello' })
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockResolveApiKey.mockImplementation(realKeyResolution)
   mockCreate.mockResolvedValue(PROVIDER_OK)
+  mockCheckAiLimits.mockResolvedValue({ allowed: true })
+  mockGetEncryptedKey.mockResolvedValue(null)
+  mockIsEntitled.mockResolvedValue(true)
+  process.env.ANTHROPIC_API_KEY = 'sk-managed'
+  process.env.AI_KEY_ENCRYPTION_SECRET = KEK
+  resetEnvForTests()
 })
 
 afterEach(() => {
-  delete process.env.AI_RATE_LIMIT_PER_MINUTE
-  delete process.env.AI_MANAGED_DAILY_TOKEN_CAP
+  delete process.env.ANTHROPIC_API_KEY
+  delete process.env.AI_KEY_ENCRYPTION_SECRET
+  resetEnvForTests()
   vi.restoreAllMocks()
 })
 
-describe('sliding-window request limit', () => {
-  test('under the limit the call goes through and is metered', async () => {
-    const { client } = stubClient({
-      lastMinute: { count: 9 },
-      today: { rows: [{ input_tokens: 100, output_tokens: 50 }] },
-    })
-    const result = await runPing(client)
-    expect(result).toEqual({ ok: true, data: { ok: true, echo: 'hello' } })
-    expect(mockCreate).toHaveBeenCalledTimes(1)
-    expect(mockRecordUsage).toHaveBeenCalledTimes(1)
-  })
-
-  test('at the limit the call is refused with 429 before any key work', async () => {
-    const { client } = stubClient({ lastMinute: { count: 10 } })
-    const result = await runPing(client)
-    expect(result).toEqual({
-      ok: false,
-      status: 429,
-      error: expect.stringContaining('wait a minute'),
-    })
-    expect(mockResolveApiKey).not.toHaveBeenCalled()
+describe('task dispatch', () => {
+  test('an unregistered task is a 404, and nothing else runs', async () => {
+    const result = await executeAiTask(OWNER, 'draft_anything_you_want', {})
+    expect(result).toMatchObject({ ok: false, status: 404 })
+    expect(mockCheckAiLimits).not.toHaveBeenCalled()
     expect(mockCreate).not.toHaveBeenCalled()
   })
 
-  test('BYOK is NOT exempt from the request limit', async () => {
-    const { client } = stubClient({ byokCredential: true, lastMinute: { count: 10 } })
-    const result = await runPing(client)
-    expect(result).toMatchObject({ ok: false, status: 429 })
+  test('input the task rejects is a 400 before any spend', async () => {
+    const result = await executeAiTask(OWNER, 'ping', { message: 42 })
+    expect(result).toMatchObject({ ok: false, status: 400 })
     expect(mockCreate).not.toHaveBeenCalled()
-  })
-
-  test('AI_RATE_LIMIT_PER_MINUTE overrides the default of 10', async () => {
-    process.env.AI_RATE_LIMIT_PER_MINUTE = '3'
-    const { client } = stubClient({ lastMinute: { count: 3 } })
-    expect(await runPing(client)).toMatchObject({ ok: false, status: 429 })
-  })
-
-  test('a failed window lookup fails OPEN', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { client } = stubClient({
-      lastMinute: { count: null, error: { message: 'permission denied' } },
-    })
-    const result = await runPing(client)
-    expect(result).toMatchObject({ ok: true })
-    expect(mockCreate).toHaveBeenCalledTimes(1)
   })
 })
 
-describe('managed-tier daily token cap', () => {
-  test("over the cap, a managed call is refused and the message points to the veteran's own key", async () => {
-    const { client } = stubClient({
-      lastMinute: { count: 0 },
-      today: { rows: [{ input_tokens: 1_900_000, output_tokens: 100_000 }] },
+describe('the freemium gate', () => {
+  test('a premium task without entitlement is a 402 before any spend', async () => {
+    mockIsEntitled.mockResolvedValue(false)
+    const result = await executeAiTask(OWNER, 'draft_cover_letter', {
+      boardName: 'NDRB', form: 'DD293', branch: 'MarineCorps',
+      characterization: 'OtherThanHonorable', conditionSummary: 'adjustment disorder',
     })
-    const result = await runPing(client)
-    expect(result).toEqual({
-      ok: false,
-      status: 429,
-      error: expect.stringContaining('your own API key in AI settings'),
-    })
+    expect(result).toMatchObject({ ok: false, status: 402 })
+    expect(mockIsEntitled).toHaveBeenCalledWith(OWNER)
     expect(mockResolveApiKey).not.toHaveBeenCalled()
     expect(mockCreate).not.toHaveBeenCalled()
   })
 
-  test('BYOK calls are exempt — the cap query never even runs', async () => {
-    const { client, todaySpy } = stubClient({
-      byokCredential: true,
-      lastMinute: { count: 0 },
-      today: { rows: [{ input_tokens: 5_000_000, output_tokens: 0 }] },
-    })
-    const result = await runPing(client)
-    expect(result).toMatchObject({ ok: true })
-    expect(todaySpy).not.toHaveBeenCalled()
+  test('a free task never asks about entitlement', async () => {
+    await runPing()
+    expect(mockIsEntitled).not.toHaveBeenCalled()
   })
+})
 
-  test('a ledger longer than one PostgREST page counts as over-cap', async () => {
-    const { client } = stubClient({
-      lastMinute: { count: 0 },
-      today: { rows: [{ input_tokens: 10, output_tokens: 10 }], count: 1001 },
-    })
-    expect(await runPing(client)).toMatchObject({ ok: false, status: 429 })
-  })
-
-  test('AI_MANAGED_DAILY_TOKEN_CAP overrides the default of 2,000,000', async () => {
-    process.env.AI_MANAGED_DAILY_TOKEN_CAP = '500'
-    const { client } = stubClient({
-      lastMinute: { count: 0 },
-      today: { rows: [{ input_tokens: 400, output_tokens: 100 }] },
-    })
-    expect(await runPing(client)).toMatchObject({ ok: false, status: 429 })
-  })
-
-  test('a failed cap lookup fails OPEN', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { client } = stubClient({
-      lastMinute: { count: 0 },
-      today: { rows: [], error: { message: 'permission denied' } },
-    })
-    const result = await runPing(client)
-    expect(result).toMatchObject({ ok: true })
+describe('cost guardrails', () => {
+  test('an allowed call goes through and is metered against its owner', async () => {
+    const result = await runPing()
+    expect(result).toEqual({ ok: true, data: { ok: true, echo: 'hello' } })
     expect(mockCreate).toHaveBeenCalledTimes(1)
+    expect(mockRecordUsage).toHaveBeenCalledWith(OWNER, {
+      task: 'ping', model: 'claude-opus-4-8', byok: false, inputTokens: 11, outputTokens: 7,
+    })
+  })
+
+  test('a refusal is a 429 raised before any key work or provider call', async () => {
+    mockCheckAiLimits.mockResolvedValue({ allowed: false, error: 'Too many AI requests — wait a minute and try again' })
+    const result = await runPing()
+    expect(result).toEqual({
+      ok: false, status: 429, error: expect.stringContaining('wait a minute'),
+    })
+    expect(mockResolveApiKey).not.toHaveBeenCalled()
+    expect(mockCreate).not.toHaveBeenCalled()
+    expect(mockRecordUsage).not.toHaveBeenCalled()
+  })
+
+  test('BYOK is judged from credential presence alone, without touching the key', async () => {
+    mockGetEncryptedKey.mockResolvedValue('enc')
+    await runPing()
+    expect(mockCheckAiLimits).toHaveBeenCalledWith(OWNER, true)
+  })
+
+  test('a managed call reports byok=false to the limiter', async () => {
+    await runPing()
+    expect(mockCheckAiLimits).toHaveBeenCalledWith(OWNER, false)
+  })
+
+  test('BYOK is NOT exempt from a refusal', async () => {
+    mockGetEncryptedKey.mockResolvedValue('enc')
+    mockCheckAiLimits.mockResolvedValue({ allowed: false, error: 'Too many AI requests — wait a minute and try again' })
+    expect(await runPing()).toMatchObject({ ok: false, status: 429 })
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+})
+
+describe('key resolution', () => {
+  test("the owner id is the AAD the ciphertext must authenticate under", async () => {
+    mockGetEncryptedKey.mockResolvedValue('enc')
+    await runPing()
+    expect(mockResolveApiKey).toHaveBeenCalledWith({
+      encryptedByokKey: 'enc', kek: KEK, aad: OWNER, managedKey: 'sk-managed',
+    })
+  })
+
+  test('an unreadable BYOK key is a 503 that never falls back to the managed key', async () => {
+    mockGetEncryptedKey.mockResolvedValue('enc')
+    mockResolveApiKey.mockImplementation(() => { throw new Error('unsupported state') })
+    const result = await runPing()
+    expect(result).toEqual({
+      ok: false,
+      status: 503,
+      error: expect.stringContaining('re-enter it in AI settings'),
+      byokKeyRejected: true,
+    })
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  test('no key at all is a 503 that does NOT blame the veteran', async () => {
+    delete process.env.ANTHROPIC_API_KEY
+    resetEnvForTests()
+    mockResolveApiKey.mockImplementation(() => { throw new Error('No AI key available') })
+    const result = await runPing()
+    expect(result).toEqual({ ok: false, status: 503, error: 'AI key unavailable' })
+    expect((result as { byokKeyRejected?: boolean }).byokKeyRejected).toBeUndefined()
+  })
+
+  test('a BYOK credential with no KEK configured is an ops failure, not a bad key', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    delete process.env.AI_KEY_ENCRYPTION_SECRET
+    resetEnvForTests()
+    mockGetEncryptedKey.mockResolvedValue('enc')
+    const result = await runPing()
+    expect(result).toEqual({ ok: false, status: 503, error: 'AI key unavailable' })
+    expect(mockResolveApiKey).not.toHaveBeenCalled()
+  })
+})
+
+describe('provider failures', () => {
+  test("401 on the veteran's own key is flagged as a key problem, not a retry", async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockGetEncryptedKey.mockResolvedValue('enc')
+    mockCreate.mockRejectedValue(Object.assign(new Error('unauthorized'), { status: 401 }))
+    expect(await runPing()).toEqual({
+      ok: false,
+      status: 502,
+      error: expect.stringContaining('rejected your API key'),
+      byokKeyRejected: true,
+    })
+  })
+
+  test('401 on the MANAGED key is an ops problem with the generic message', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreate.mockRejectedValue(Object.assign(new Error('unauthorized'), { status: 401 }))
+    const result = await runPing()
+    expect(result).toEqual({ ok: false, status: 502, error: 'AI provider error' })
+    expect((result as { byokKeyRejected?: boolean }).byokKeyRejected).toBeUndefined()
+  })
+
+  test('any other provider error is a plain 502', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockCreate.mockRejectedValue(Object.assign(new Error('overloaded'), { status: 529 }))
+    expect(await runPing()).toEqual({ ok: false, status: 502, error: 'AI provider error' })
+    expect(mockRecordUsage).not.toHaveBeenCalled()
+  })
+})
+
+describe('response handling', () => {
+  test('a refusal is metered and reported as 422 — the tokens were still spent', async () => {
+    mockCreate.mockResolvedValue({ ...PROVIDER_OK, stop_reason: 'refusal' })
+    expect(await runPing()).toMatchObject({ ok: false, status: 422 })
+    expect(mockRecordUsage).toHaveBeenCalledTimes(1)
+  })
+
+  test('output that fails the task schema is a 502, still metered', async () => {
+    mockCreate.mockResolvedValue({
+      ...PROVIDER_OK,
+      content: [{ type: 'text', text: JSON.stringify({ wrong: 'shape' }) }],
+    })
+    expect(await runPing()).toMatchObject({ ok: false, status: 502, error: 'Model output failed validation' })
+    expect(mockRecordUsage).toHaveBeenCalledTimes(1)
+  })
+
+  test('non-JSON output is the same failure class', async () => {
+    mockCreate.mockResolvedValue({ ...PROVIDER_OK, content: [{ type: 'text', text: 'not json' }] })
+    expect(await runPing()).toMatchObject({ ok: false, status: 502 })
   })
 })
