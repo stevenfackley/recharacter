@@ -14,7 +14,7 @@ Everything between code-complete (all 8 roadmap plans merged) and public launch.
 ## 2. Product gaps accepted at MVP (decide: fix now or ship without)
 
 - [x] One-click data delete/export (`docs/legal-posture.md` promises it) — shipped 2026-07-10 (PR #17, deployed): Settings → Your data (`/settings/data`); export is RLS-scoped JSON, deletion sweeps storage then cascades via `auth.admin.deleteUser`.
-- [ ] **`SUPABASE_SERVICE_ROLE_KEY` on the prod box** — verified MISSING 2026-07-11 (deletion failing closed in prod). Now deploy-managed: `deploy.yml` syncs it into the box `.env` from the `SUPABASE_SERVICE_ROLE_KEY` Actions secret on every deploy. **To close: set the repo secret** (`supabase projects api-keys --project-ref ldxgdceplsdycviroisd` → `gh secret set`), then any deploy fixes prod.
+- [x] Long-lived database superkey on the prod box — retired by the Plan 09 re-platform (2026-08-27): account deletion now runs through the `recharacter-admin-svc` Keycloak service account (`manage-users` only), not a database superkey. See the infra items below for the cutover secrets this introduces.
 - [ ] Requested-characterization field in intake (worksheet currently renders bracketed guidance).
 - [ ] Document list/delete UI for uploaded records (bucket + policies exist; no UI).
 - [x] `source` provenance loss on confirm (`confirmFacts` always writes `manual`) — fixed 2026-07-11 (PR #20): confirming untouched extracted values keeps `source: 'extracted'` (still `confirmed: true`); any edit or first manual entry records `manual`. Gate restructured: `saveServiceFacts` writes only unconfirmed rows, `confirmServiceFacts` is the sole confirmer and derives provenance itself.
@@ -22,8 +22,16 @@ Everything between code-complete (all 8 roadmap plans merged) and public launch.
 
 ## 3. Infrastructure — live at recharacter.us
 
-- [x] Cloud Supabase project (`recharacter`, us-east-1, Steve's Database Org): provisioned, migrations 0001–0008 pushed, storage bucket + policies. Migration 0008 added explicit `service_role` grants — third occurrence of the CI-vs-local ACL lesson (never rely on default privileges).
-- [ ] Auth email polish: custom SMTP + templates/sending domain (currently Supabase default SMTP — fine for smoke, not for public traffic).
+- [x] Re-platformed onto the fleet convention (Plan 09, 2026-08-27): Keycloak realm `recharacter` on qavren-auth for identity, Postgres schema `recharacter` on qavren-db for data (owner-scoped queries, no RLS), Cloudflare R2 for case documents. Built and merged; cutover (below) is the remaining Steve-only step.
+- [ ] **Cutover — R2**: create bucket `recharacter-case-documents` (private) + a scoped API token (Object Read & Write); put `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` in the box `.env`.
+- [ ] **Cutover — qavren-db**: `pwsh tools/provision-app.ps1 -App recharacter -Env prod -RotatePassword`; `DATABASE_URL` (pooler, `:6543`) into the box `.env`; `DATABASE_URL_MIGRATE` (session, `:5432`) as a `gh secret set` on the repo (read only by the deploy workflow's `migrate` job).
+- [ ] **Cutover — Keycloak admin secret**: `QAVREN_ADMIN_CLIENT_SECRET` on the box, same value as the qavren-auth box's `RECHARACTER_ADMIN_CLIENT_SECRET`; account deletion fails closed without it.
+- [ ] **Cutover — Auth.js secrets**: `AUTH_SECRET` (`openssl rand -base64 32`) and `AUTH_URL=https://recharacter.us` on the box.
+- [ ] Realm follow-up: consider `verifyEmail: true` on the `recharacter` Keycloak realm (qavren-auth repo change).
+- [ ] Client follow-up: flip `recharacter-web` → confidential (`confidential: true` + `QAVREN_CLIENT_SECRET` against `recharacter-web-confidential`) once `@qavren/auth-next` ≥ 0.2.0 publishes.
+- [ ] Delete the old Supabase project `ldxgdceplsdycviroisd` after its 7-day read-only retention window (paused, not deleted, at cutover).
+- [ ] Cutover smoke: register on Keycloak's hosted page → upload a document → routing renders → packet generates → delete the account → confirm the user is gone from the Keycloak `recharacter` realm.
+- [ ] Auth email polish: Keycloak realm mail config (templates/sending domain) — a qavren-auth concern, currently default SMTP; fine for smoke, not for public traffic.
 - [x] Next.js app hosted: Qavren-Web-Server EC2, rootless Docker, Cloudflare Tunnel ingress (zero inbound ports on the box). All env set per `deploy/env.example`.
 - [ ] `AI_KEY_ENCRYPTION_SECRET` (KEK) lives in the box `.env`, not a secrets manager; rotation story is still a known gap.
 - [x] .NET routing API deployed (internal-only container on the compose network; `ROUTING_API_URL` wired).
@@ -39,9 +47,10 @@ Everything between code-complete (all 8 roadmap plans merged) and public launch.
 
 ## 5. Ops & safety
 
-- [ ] Error tracking (Sentry is already in the workspace toolbox) + uptime checks on web, routing API, Supabase.
+- [ ] Error tracking (Sentry is already in the workspace toolbox) + uptime checks on web, routing API, qavren-db.
 - [x] Managed-tier cost guardrails — shipped 2026-07-11: hard per-user daily token cap on non-BYOK calls at the gateway (`AI_MANAGED_DAILY_TOKEN_CAP`, default 2M/UTC day). Aggregate spend *alerting* on `ai_usage` is still open (fold into the Sentry/uptime item).
-- [ ] Backups/retention: Supabase PITR settings; the retention policy the privacy copy promises.
+- [x] Backups: qavren-db runs nightly per-schema dumps to R2, platform-managed — no app-side setup.
+- [ ] Retention: document the app-level retention policy the privacy copy promises.
 - [x] Rate limiting on `/api/ai/*` — shipped 2026-07-11: per-user sliding window in `executeAiTask` (`AI_RATE_LIMIT_PER_MINUTE`, default 10/min) — covers the API route AND server actions, BYOK included.
 
 ## 6. Content
