@@ -60,6 +60,17 @@ describe('deleteAccount', () => {
     expect(redirectSpy).toHaveBeenCalledWith('/login?deleted=1')
   })
 
+  test('a failed sign-out does not turn a completed deletion into an error', async () => {
+    signOutSpy.mockRejectedValue(new Error('cookie store unavailable'))
+    const { deleteAccount } = await import('./actions')
+
+    await expect(deleteAccount(form(true))).rejects.toThrow('NEXT_REDIRECT')
+
+    expect(mockDeleteAccountData).toHaveBeenCalled()
+    expect(redirectSpy).toHaveBeenCalledWith('/login?deleted=1')
+    expect(redirectSpy).not.toHaveBeenCalledWith('/settings/data?error=deletion_failed')
+  })
+
   test('without the confirmation nothing is deleted', async () => {
     const { deleteAccount } = await import('./actions')
 

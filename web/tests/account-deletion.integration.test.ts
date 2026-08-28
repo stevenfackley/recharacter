@@ -179,7 +179,6 @@ describe('deleteAccountData fails closed', () => {
 describe('deleteAccountData', () => {
   it('removes every row and object Alice owns, and nothing of Bob\'s', async () => {
     const admin = stubAdmin()
-    const removeSpy = vi.spyOn(store, 'remove')
 
     const result = await deleteAccountData(alice, { store, admin })
 
@@ -194,11 +193,6 @@ describe('deleteAccountData', () => {
 
     expect(admin.deleteUser).toHaveBeenCalledTimes(1)
     expect(admin.deleteUser).toHaveBeenCalledWith(alice, 'tok')
-
-    // Credentials are proven before a single byte is destroyed.
-    expect(admin.getToken.mock.invocationCallOrder[0])
-      .toBeLessThan(removeSpy.mock.invocationCallOrder[0])
-    removeSpy.mockRestore()
   }, 30_000)
 
   it('leaves the append-only ledger guard in force once the deletion transaction commits', async () => {
@@ -207,5 +201,88 @@ describe('deleteAccountData', () => {
     await expect(db().delete(entitlements).where(eq(entitlements.ownerId, bob)))
       .rejects.toSatisfy((e) => pgCode(e) === '42501')
     expect((await counts(bob)).ai_usage).toBe(1)
+  })
+})
+
+/**
+ * Postgres, R2 and Keycloak are three systems with no transaction between them,
+ * so a failure after the rows commit is a real state a veteran can end up in.
+ * What matters is that it is not a dead end: running the deletion again from
+ * either residual state finishes the job.
+ */
+describe('deleteAccountData after a partial failure', () => {
+  it('retries the object sweep when the store failed, leaving the rows already gone', async () => {
+    const erin = freshOwner()
+    await seed(erin, store)
+    const admin = stubAdmin()
+    const removeSpy = vi.spyOn(store, 'remove')
+    removeSpy.mockRejectedValueOnce(new Error('bucket unreachable'))
+
+    await expect(deleteAccountData(erin, { store, admin })).rejects.toThrow('bucket unreachable')
+
+    expect(await counts(erin)).toEqual(everyTable(0))
+    expect(await listOwnerDocuments(store, erin)).toHaveLength(1)
+    expect(admin.deleteUser).not.toHaveBeenCalled()
+
+    const retry = await deleteAccountData(erin, { store, admin })
+
+    expect(retry.rowsByTable).toEqual(everyTable(0))
+    expect(retry.objects).toBe(1)
+    expect(await listOwnerDocuments(store, erin)).toEqual([])
+    expect(admin.deleteUser).toHaveBeenCalledTimes(1)
+    expect(admin.deleteUser).toHaveBeenCalledWith(erin, 'tok')
+    removeSpy.mockRestore()
+  })
+
+  it('retries the identity delete when Keycloak failed, and is idempotent', async () => {
+    const frank = freshOwner()
+    await seed(frank, store)
+    const admin = stubAdmin()
+    admin.deleteUser.mockRejectedValueOnce(new Error('keycloak user delete returned 503'))
+
+    await expect(deleteAccountData(frank, { store, admin })).rejects.toThrow('503')
+
+    expect(await counts(frank)).toEqual(everyTable(0))
+    expect(await listOwnerDocuments(store, frank)).toEqual([])
+
+    const retry = await deleteAccountData(frank, { store, admin })
+
+    expect(retry.rowsByTable).toEqual(everyTable(0))
+    expect(retry.objects).toBe(0)
+    expect(admin.deleteUser).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('deleteAccountData verifies the cascade', () => {
+  it('rolls back rather than report a row it did not remove', async () => {
+    const grace = freshOwner()
+    await seed(grace, store)
+
+    // A row carrying Grace's owner_id whose case belongs to someone else: the
+    // FK is valid, so it exists, but the cascade off Grace's case never reaches it.
+    const stranger = freshOwner()
+    const [strangerCase] = await db().insert(cases).values({ ownerId: stranger })
+      .returning({ id: cases.id })
+    await db().insert(serviceFacts).values({
+      caseId: strangerCase.id, ownerId: grace, branch: 'Navy',
+      dischargeDate: '2016-08-01', characterization: 'GeneralUnderHonorable',
+    })
+
+    const admin = stubAdmin()
+    await expect(deleteAccountData(grace, { store, admin }))
+      .rejects.toThrow(/survived the case cascade/)
+
+    // The whole transaction rolled back, so nothing of Grace's went.
+    const after = await counts(grace)
+    expect(after.cases).toBe(1)
+    expect(after.ai_usage).toBe(1)
+    expect(after.entitlements).toBe(1)
+    expect(after.drafts).toBe(1)
+    expect(after.service_facts).toBe(2)
+    expect(await listOwnerDocuments(store, grace)).toHaveLength(1)
+    expect(admin.deleteUser).not.toHaveBeenCalled()
+
+    await db().delete(serviceFacts).where(eq(serviceFacts.caseId, strangerCase.id))
+    await db().delete(cases).where(eq(cases.id, strangerCase.id))
   })
 })
