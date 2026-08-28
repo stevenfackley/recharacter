@@ -99,22 +99,36 @@ describe('saveAnswer — state-returning save (no redirect)', () => {
 })
 
 describe('shapeAnswer — premium gate transport', () => {
-  test('redirects to /case/upgrade on a 402 from the gateway', async () => {
+  test('a 402 is told in place and names the upgrade page — never a navigation', async () => {
     mockExecute.mockResolvedValue({ ok: false, status: 402, error: 'needs the case unlock or your own API key' })
     const { shapeAnswer } = await import('./actions')
 
-    await expect(
-      shapeAnswer({ shapedAnswer: null, gaps: null }, formWith('my raw account')),
-    ).rejects.toThrow()
-    expect(redirectSpy).toHaveBeenCalledWith('/case/upgrade')
+    const result = await shapeAnswer({ shapedAnswer: null, gaps: null }, formWith('my raw account'))
+
+    expect(result.shapedAnswer).toBeNull()
+    expect(result.gaps).toContain('/case/upgrade')
+    // Navigating away would discard the other three unsaved answers (issue #9),
+    // which is exactly why saveAnswer is state-returning too.
+    expect(redirectSpy).not.toHaveBeenCalled()
   })
 
-  test('a non-402 failure still returns nulls without redirecting', async () => {
+  test('a non-402 failure explains itself in place, still no redirect', async () => {
     mockExecute.mockResolvedValue({ ok: false, status: 503, error: 'AI key unavailable' })
     const { shapeAnswer } = await import('./actions')
 
     const result = await shapeAnswer({ shapedAnswer: null, gaps: null }, formWith('my raw account'))
-    expect(result).toEqual({ shapedAnswer: null, gaps: null })
+    expect(result.shapedAnswer).toBeNull()
+    expect(result.gaps).toContain('unavailable')
+    expect(redirectSpy).not.toHaveBeenCalled()
+  })
+
+  test('a gateway that rejects outright is inline state, not a 500', async () => {
+    mockExecute.mockRejectedValue(new Error('ai_usage attempt insert failed'))
+    const { shapeAnswer } = await import('./actions')
+
+    const result = await shapeAnswer({ shapedAnswer: null, gaps: null }, formWith('my raw account'))
+    expect(result.shapedAnswer).toBeNull()
+    expect(result.gaps).toContain('unavailable')
     expect(redirectSpy).not.toHaveBeenCalled()
   })
 

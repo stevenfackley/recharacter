@@ -85,6 +85,17 @@ describe('requestCoaching transport', () => {
     expect(mockExecute.mock.calls[0][1]).toBe('coaching_note')
   })
 
+  test('a gateway that rejects outright → { note: null }, never a 500', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockExecute.mockRejectedValue(new Error('ai_usage attempt insert failed'))
+    const { requestCoaching } = await import('./actions')
+
+    const result = await requestCoaching({ note: null }, new FormData())
+
+    expect(result).toEqual({ note: null })
+    expect(redirectSpy).not.toHaveBeenCalled()
+  })
+
   test('AI unavailable → { note: null }, still no redirect', async () => {
     mockExecute.mockResolvedValue({ ok: false, status: 503, error: 'AI key unavailable' })
     const { requestCoaching } = await import('./actions')
