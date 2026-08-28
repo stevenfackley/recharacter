@@ -35,7 +35,7 @@ npm run dev                          # http://localhost:3000
 | `AUTH_SECRET` | `openssl rand -base64 32` | Auth.js cookie encryption — must be set locally too |
 | `AUTH_URL` / `APP_BASE_URL` | `http://localhost:3000` | `http://localhost:3000/*` is an allowed redirect URI on the `recharacter-web` Keycloak client |
 | `QAVREN_AUTH_URL` | `https://auth.recharacter.us` | local dev signs in against the **live** Keycloak realm — there is no local Keycloak |
-| `S3_ENDPOINT` | `http://127.0.0.1:9000` | routes the R2 client at local MinIO instead |
+| `S3_ENDPOINT` | `http://127.0.0.1:9100` | routes the R2 client at local MinIO instead |
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` / `R2_ACCOUNT_ID` | `minio` / `minio12345` / `recharacter-dev` / `local` | MinIO credentials from `compose.dev.yaml` |
 | `ANTHROPIC_API_KEY` | your key (Plan 03+) | server only |
 | `AI_KEY_ENCRYPTION_SECRET` | `openssl rand -base64 32` (Plan 03+) | server only |
