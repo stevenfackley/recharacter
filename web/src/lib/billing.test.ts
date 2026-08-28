@@ -1,113 +1,67 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import type { SupabaseClient } from '@supabase/supabase-js'
+import type { Db } from '@/db'
 
-const mockGetUser = vi.fn()
-const mockFrom = vi.fn()
-vi.mock('@/lib/supabase/server', () => ({
-  createClient: async () => ({
-    auth: { getUser: mockGetUser },
-    from: mockFrom,
-  }),
-}))
+/**
+ * The freemium gate's real behaviour — grant, idempotent re-grant, cross-owner
+ * session replay, isolation — is proven against Postgres in
+ * tests/entitlements-scoping.integration.test.ts.
+ *
+ * What is left here is the one branch a live database will not reproduce on
+ * demand: the insert reported no new entitlement AND the owner has none. That
+ * combination means the write was rejected for a reason other than the
+ * one-per-owner conflict, and it must never be swallowed — silently returning
+ * 'already_entitled' there would tell Stripe the unlock was delivered when the
+ * veteran did not get it.
+ */
 
-import { isEntitled, recordPendingCheckout, grantEntitlement } from '@/lib/billing'
+const deleted = vi.fn()
+let insertReturning: Array<Record<string, unknown>> = []
+let existingEntitlement: Array<{ stripeSessionId: string }> = []
 
-/** Fakes the two `.from(table).select().eq().maybeSingle()` calls isEntitled makes. */
-function fakeSupabase(rows: { entitlements?: unknown; ai_credentials?: unknown }): SupabaseClient {
-  return {
-    from: (table: string) => ({
-      select: () => ({
-        eq: () => ({
-          maybeSingle: async () => ({ data: rows[table as keyof typeof rows] ?? null }),
-        }),
-      }),
+const fakeDb = {
+  insert: () => ({
+    values: () => ({
+      onConflictDoNothing: () => ({ returning: async () => insertReturning }),
     }),
-  } as unknown as SupabaseClient
-}
+  }),
+  select: () => ({
+    from: () => ({ where: () => ({ limit: async () => existingEntitlement }) }),
+  }),
+  delete: () => ({ where: async () => deleted() }),
+} as unknown as Db
 
-describe('isEntitled', () => {
-  test('entitled via a paid unlock alone', async () => {
-    const supabase = fakeSupabase({ entitlements: { id: 'ent-1' }, ai_credentials: null })
-    expect(await isEntitled(supabase, 'user-1')).toBe(true)
-  })
+vi.mock('@/db', () => ({ getDb: () => fakeDb }))
 
-  test('entitled via a BYOK credential alone', async () => {
-    const supabase = fakeSupabase({ entitlements: null, ai_credentials: { owner_id: 'user-1' } })
-    expect(await isEntitled(supabase, 'user-1')).toBe(true)
-  })
+import { grantEntitlement } from '@/lib/billing'
 
-  test('not entitled when neither exists', async () => {
-    const supabase = fakeSupabase({ entitlements: null, ai_credentials: null })
-    expect(await isEntitled(supabase, 'user-1')).toBe(false)
-  })
-})
-
-describe('recordPendingCheckout', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
-  })
-
-  test('inserts a pending_checkouts row for the signed-in user', async () => {
-    const mockInsert = vi.fn(async () => ({ error: null }))
-    mockFrom.mockImplementation(() => ({ insert: mockInsert }))
-
-    await recordPendingCheckout('cs_test_123')
-
-    expect(mockFrom).toHaveBeenCalledWith('pending_checkouts')
-    expect(mockInsert).toHaveBeenCalledWith({ owner_id: 'user-1', stripe_session_id: 'cs_test_123' })
-  })
-
-  test('throws when unauthenticated', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } })
-    await expect(recordPendingCheckout('cs_test_123')).rejects.toThrow('Not authenticated')
-  })
+beforeEach(() => {
+  vi.clearAllMocks()
+  insertReturning = []
+  existingEntitlement = []
 })
 
 describe('grantEntitlement', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
-  })
+  test('reports already_entitled when the owner already holds the unlock', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    existingEntitlement = [{ stripeSessionId: 'cs_first' }]
 
-  test('inserts the entitlement and clears the pending checkout', async () => {
-    const mockInsert = vi.fn(async () => ({ error: null }))
-    const mockEq = vi.fn(async () => ({ error: null }))
-    const mockDelete = vi.fn(() => ({ eq: mockEq }))
-    mockFrom.mockImplementation((table: string) =>
-      (table === 'entitlements' ? { insert: mockInsert } : { delete: mockDelete }))
-
-    await grantEntitlement('cs_test_123')
-
-    expect(mockInsert).toHaveBeenCalledWith({
-      owner_id: 'user-1', kind: 'case_unlock', stripe_session_id: 'cs_test_123',
+    await expect(grantEntitlement('owner-1', 'cs_second')).resolves.toBe('already_entitled')
+    expect(warn).toHaveBeenCalledWith('entitlement already held', {
+      ownerId: 'owner-1',
+      existing: 'cs_first',
+      incoming: 'cs_second',
     })
-    expect(mockDelete).toHaveBeenCalled()
-    expect(mockEq).toHaveBeenCalledWith('stripe_session_id', 'cs_test_123')
+    expect(deleted).toHaveBeenCalledTimes(1) // the pending row is still cleared
   })
 
-  test('swallows a 23505 duplicate (already recorded) and still clears the pending row', async () => {
-    const mockEq = vi.fn(async () => ({ error: null }))
-    mockFrom.mockImplementation((table: string) =>
-      (table === 'entitlements'
-        ? { insert: async () => ({ error: { code: '23505' } }) }
-        : { delete: () => ({ eq: mockEq }) }))
-
-    await expect(grantEntitlement('cs_test_123')).resolves.toBeUndefined()
-    expect(mockEq).toHaveBeenCalled()
+  test('reports granted and clears the pending checkout when the row is created', async () => {
+    insertReturning = [{ id: 'ent-1' }]
+    await expect(grantEntitlement('owner-1', 'cs_new')).resolves.toBe('granted')
+    expect(deleted).toHaveBeenCalledTimes(1)
   })
 
-  test('rethrows a non-23505 insert error', async () => {
-    mockFrom.mockImplementation((table: string) =>
-      (table === 'entitlements'
-        ? { insert: async () => ({ error: { code: '500', message: 'db down' } }) }
-        : { delete: () => ({ eq: async () => ({ error: null }) }) }))
-
-    await expect(grantEntitlement('cs_test_123')).rejects.toBeTruthy()
-  })
-
-  test('throws when unauthenticated', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } })
-    await expect(grantEntitlement('cs_test_123')).rejects.toThrow('Not authenticated')
+  test('throws when nothing was inserted and the owner has no entitlement', async () => {
+    await expect(grantEntitlement('owner-1', 'cs_new')).rejects.toThrow(/cs_new/)
+    expect(deleted).not.toHaveBeenCalled()
   })
 })
