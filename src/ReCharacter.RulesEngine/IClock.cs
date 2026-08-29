@@ -18,6 +18,12 @@ public sealed class SystemClock : IClock
 {
     private static readonly TimeSpan WesternmostUsOffset = TimeSpan.FromHours(-11);
 
-    public DateOnly Today =>
-        DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(WesternmostUsOffset).DateTime);
+    public DateOnly Today => TodayFor(DateTimeOffset.UtcNow);
+
+    /// <summary>
+    /// The pure date arithmetic behind <see cref="Today"/>: the UTC-11 civil date of the instant
+    /// <paramref name="utcNow"/>. Exposed so the day-boundary math is testable without a real clock.
+    /// </summary>
+    public static DateOnly TodayFor(DateTimeOffset utcNow) =>
+        DateOnly.FromDateTime(utcNow.ToOffset(WesternmostUsOffset).DateTime);
 }
