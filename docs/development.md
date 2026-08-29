@@ -14,7 +14,7 @@
 git clone https://github.com/stevenfackley/recharacter && cd recharacter
 
 # .NET
-dotnet build && dotnet test          # 20+ rules-engine tests + API integration tests
+dotnet build && dotnet test          # rules-engine unit tests + API integration tests
 
 # Local stack (from repo root) — Postgres 17 on :55433, MinIO on :9100 (console :9101)
 docker compose -f compose.dev.yaml up -d
@@ -52,7 +52,9 @@ dotnet run --project src/ReCharacter.RoutingApi   # routing API (POST /route)
 
 cd web
 npx vitest run src                                # unit tests (no stack needed)
-npx vitest run tests                              # owner-scoping integration tests (stack must be up)
+npx vitest run tests                              # integration tests (stack must be up) — owner
+                                                  # scoping, the export route, the migrator
+npm run e2e:public                                # end-to-end, no credentials (see below)
 npm run lint
 npx tsc --noEmit
 npm run build                                     # production build
@@ -60,6 +62,39 @@ npm run build                                     # production build
 npm run db:generate                               # drizzle-kit generate — new migration from schema.ts changes
 npm run db:migrate                                # apply pending migrations (tsx scripts/migrate.ts)
 ```
+
+## End-to-end (Playwright)
+
+Two specs under `web/e2e/`, configured by `web/playwright.config.ts` (chromium only):
+
+| Spec | What it covers | Needs |
+|------|----------------|-------|
+| `public.spec.ts` | Public pages, the security headers from `next.config.ts`, `/api/health`, the anonymous `/api/auth/session` and `/api/auth/providers`, the `proxy.ts` matcher (what redirects, what 401s, what it must *not* catch), the PKCE authorization request handed to Keycloak, and the sign-out CSRF refusals | nothing — no credentials, no writes, safe against any target |
+| `account-lifecycle.spec.ts` | Register → session → export → delete, ending by proving the realm user itself is gone | `E2E_ALLOW_REGISTRATION=1` **and** a target origin registered on the `recharacter-web` client |
+
+```bash
+cd web
+npm run build                                  # the harness runs `next start`, not `next dev`
+npm run e2e:public                             # Playwright starts the server on :3123 itself
+npm run e2e                                    # both specs (lifecycle skips without the gate)
+npm run e2e:report                             # open the last HTML report
+
+E2E_BASE_URL=https://recharacter.us npm run e2e:public   # against a deployed target instead
+```
+
+With `E2E_BASE_URL` unset, Playwright starts `npx next start -p 3123` itself with
+`AUTH_URL`/`APP_BASE_URL` set to that port, waits on `/api/health`, and reuses an
+already-running server on :3123. With it set, nothing local is started.
+
+**`account-lifecycle.spec.ts` cannot pass locally, by design.** `recharacter-web` is a public
+PKCE client whose registered redirect URIs are `https://recharacter.us/*` and
+`http://localhost:3000/*`. The harness serves :3123, so Keycloak answers the callback with
+*Invalid parameter: redirect_uri* and the login can never complete — which is exactly why the
+public spec stops at the Keycloak page and asserts only the authorization URL. Locally the
+lifecycle spec should be seen to **skip**; it runs for real in `.github/workflows/deploy.yml`
+against `https://recharacter.us` after every deploy, where it registers a throwaway
+`e2e-<date>-<random>` account and deletes it again (with one best-effort retry if the run fails
+part-way).
 
 ## Database migrations
 
@@ -76,7 +111,9 @@ Add/edit tables in `web/src/db/schema.ts`, run `npm run db:generate` to emit a n
 
 ## CI
 
-`.github/workflows/ci.yml` runs three jobs on every PR: **rules-engine** (`dotnet test`), **web** (build + unit tests, no database), and **web-integration** (Postgres 17 + MinIO service containers, `npm run db:migrate`, then the full Vitest suite including the owner-scoping isolation tests).
+`.github/workflows/ci.yml` runs four jobs on every PR: **rules-engine** (`dotnet test`), **web** (build + unit tests, no database), **web-integration** (Postgres 17 + MinIO service containers, `npm run db:migrate`, then the full Vitest suite including the owner-scoping isolation tests), and **web-e2e** (same services, then `public.spec.ts` against a `next start` the harness launches; the HTML report uploads as an artifact on failure).
+
+Only the first three are in `main`'s required-checks ruleset — branch protection names them verbatim, so adding **web-e2e** there is a separate, deliberate change.
 
 ## Conventions
 

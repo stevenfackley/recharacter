@@ -45,7 +45,11 @@ export async function setItemStatus(formData: FormData) {
   if (!STATUSES.includes(status as EvidenceStatus)) redirect('/case/evidence')
   // App-level allowlist symmetric with the status check (the DB check constraint
   // remains the backstop, but a bad type shouldn't read as a transient error).
-  if (!(itemType in EVIDENCE_CATALOG)) redirect('/case/evidence')
+  // `hasOwn`, not `in`: `in` walks the prototype chain, so 'constructor' and
+  // 'toString' would pass this guard and fail later against the check
+  // constraint — surfacing as save_failed, exactly the transient-looking error
+  // this guard exists to prevent.
+  if (!Object.hasOwn(EVIDENCE_CATALOG, itemType)) redirect('/case/evidence')
 
   const c = await getOrCreateCase(user.id)
   try {

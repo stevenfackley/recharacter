@@ -50,8 +50,19 @@ function post(task: string, body: unknown) {
 }
 
 async function callRoute(task: string, body: unknown) {
-  const { POST } = await import('@/app/api/ai/[task]/route')
+  const { POST } = await import('./route')
   return POST(post(task, body), { params: Promise.resolve({ task }) })
+}
+
+/** A POST whose body is handed over verbatim — for bodies that are not JSON. */
+async function callRouteRaw(task: string, body: string | null) {
+  const { POST } = await import('./route')
+  const req = new NextRequest(`http://localhost/api/ai/${task}`, {
+    method: 'POST',
+    body,
+    headers: { 'content-type': 'application/json' },
+  })
+  return POST(req, { params: Promise.resolve({ task }) })
 }
 
 beforeEach(() => {
@@ -152,6 +163,60 @@ describe('POST /api/ai/[task]', () => {
     })
     const res = await callRoute('ping', { message: 'hi' })
     expect(res.status).toBe(200)
+  })
+})
+
+describe('POST /api/ai/[task] — request parsing', () => {
+  test('a body that is not JSON → 400 "Invalid input for task", before the gateway is touched', async () => {
+    const res = await callRouteRaw('ping', '{not json')
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Invalid input for task' })
+    // The gateway never ran: no attempt was counted and no model was called.
+    expect(mockRecordAttempt).not.toHaveBeenCalled()
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  test('an empty body is the same 400 — request.json() rejects it', async () => {
+    const res = await callRouteRaw('ping', null)
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({ error: 'Invalid input for task' })
+    expect(mockRecordAttempt).not.toHaveBeenCalled()
+  })
+
+  test('the malformed-body 400 is indistinguishable from a schema 400', async () => {
+    // Same shape either way, so a caller cannot tell "unparseable" from
+    // "parsed but refused" — there is nothing to learn from the difference.
+    const malformed = await (await callRouteRaw('ping', '{not json')).json()
+    const refused = await (await callRoute('ping', { message: 42 })).json()
+
+    expect(malformed).toEqual(refused)
+  })
+
+  test('401 wins over a malformed body — an anonymous caller learns nothing about parsing', async () => {
+    mockGetSessionUser.mockResolvedValue(null)
+    const res = await callRouteRaw('ping', '{not json')
+
+    expect(res.status).toBe(401)
+    expect(await res.json()).toEqual({ error: 'unauthenticated' })
+  })
+
+  test('an empty task segment is an unknown task: 404, and nothing is counted or called', async () => {
+    const res = await callRoute('', { message: 'hi' })
+
+    expect(res.status).toBe(404)
+    expect((await res.json()).error).toMatch(/^Unknown task/)
+    expect(mockRecordAttempt).not.toHaveBeenCalled()
+    expect(mockCreate).not.toHaveBeenCalled()
+  })
+
+  test('the task lookup is exact: case and whitespace variants of a real task are unknown', async () => {
+    for (const task of ['PING', 'ping ', ' ping', 'ping/']) {
+      const res = await callRoute(task, { message: 'hi' })
+      expect(res.status, JSON.stringify(task)).toBe(404)
+    }
+    expect(mockCreate).not.toHaveBeenCalled()
   })
 })
 

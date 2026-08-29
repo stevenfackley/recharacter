@@ -14,7 +14,10 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
-    "test:integration": "vitest run tests"
+    "test:integration": "vitest run tests",
+    "e2e": "playwright test",
+    "e2e:public": "playwright test e2e/public.spec.ts",
+    "e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
@@ -32,6 +35,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^26",

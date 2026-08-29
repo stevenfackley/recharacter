@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll, vi } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { db, freshOwner, pgCode } from './helpers'
 import { closeDb } from '@/db'
-import { entitlements } from '@/db/schema'
+import { entitlements, pendingCheckouts } from '@/db/schema'
 import { saveEncryptedKey } from '@/lib/ai/credentials'
 import {
   isEntitled,
@@ -111,6 +111,32 @@ describe('entitlements are client-immutable', () => {
 })
 
 describe('pending checkouts', () => {
+  it('recordPendingCheckout writes one owner-scoped row carrying the session id', async () => {
+    const alice = freshOwner()
+    const bob = freshOwner()
+    const s = session(alice)
+    await recordPendingCheckout(alice, s)
+    const rows = await db().select().from(pendingCheckouts).where(eq(pendingCheckouts.ownerId, alice))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ ownerId: alice, stripeSessionId: s })
+    expect(rows[0].id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(rows[0].createdAt).toBeInstanceOf(Date)
+    // Nothing else rides along: the row is the session id, who started it, and when.
+    expect(Object.keys(rows[0]).sort()).toEqual(['createdAt', 'id', 'ownerId', 'stripeSessionId'])
+    expect(await listPendingCheckouts(bob)).toEqual([])
+  })
+
+  it('recording the same session twice for the same owner is refused with 23505, not duplicated', async () => {
+    // Plain insert, no on-conflict clause: the unique on stripe_session_id is
+    // what answers a double-submitted checkout, and it answers with an error
+    // rather than a second row.
+    const alice = freshOwner()
+    const s = session(alice)
+    await recordPendingCheckout(alice, s)
+    await expect(recordPendingCheckout(alice, s)).rejects.toSatisfy((e) => pgCode(e) === '23505')
+    expect(await listPendingCheckouts(alice)).toEqual([s])
+  })
+
   it('are listed only for the owner who started them', async () => {
     const alice = freshOwner()
     const bob = freshOwner()
