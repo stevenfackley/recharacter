@@ -114,14 +114,24 @@ Manual equivalent:
 
 ## Post-deploy smoke checklist
 
-- `https://recharacter.us` renders the landing page (Cloudflare TLS).
-- Register a new account on Keycloak's hosted page (`/login` → registration link, or `prompt=create`
-  deep link from the signup page) → redirected back signed in.
+The Deploy workflow now smokes the site itself. After `docker compose up -d --wait`, it polls
+`https://recharacter.us/login` for a 200, then runs the Playwright suites (`web/e2e/`) against the
+live site with `E2E_ALLOW_REGISTRATION=1` — so these are already covered, and a red Deploy job
+means one of them failed (the HTML report uploads as the `playwright-report-prod` artifact):
+
+- the landing page, `/login`, `/signup`, `/terms`, `/privacy`, and the security headers;
+- the `proxy.ts` guard (protected pages redirect, protected APIs 401) and the sign-out CSRF refusals;
+- register a throwaway account on Keycloak's hosted page via `prompt=create` → back signed in on `/case`;
+- `/api/account/export` returns all 13 keys, no-store, and the session carries no ID token;
+- delete that account from `/settings/data` → signing back in fails on the realm with *Invalid
+  username or password*, which is the proof the admin-svc deletion path ran and not just the
+  app-side redirect.
+
+Still manual — these write real records and cost real tokens, so no automated run creates them:
+
 - Manual facts → routing renders (proves web→routing on the compose network).
 - Upload a DD-214 → extraction (proves web→R2 and web→Anthropic with the prod key).
 - `/settings/ai` BYOK save → packet page shows "Case unlocked" (proves KEK + entitlement).
-- Delete the test account from `/settings/data` → confirm the user is gone from the Keycloak
-  `recharacter` realm (proves the admin-svc deletion path, not just the app-side redirect).
 
 ## Deliberately not in this stack (tracked in docs/launch-checklist.md)
 
