@@ -2,7 +2,9 @@ import { describe, it, expect, afterAll } from 'vitest'
 import { eq, sql } from 'drizzle-orm'
 import { db, freshOwner, pgCode, allowLedgerDelete } from './helpers'
 import { closeDb } from '@/db'
-import { cases, serviceFacts, aiUsage, entitlements, evidenceItems, drafts } from '@/db/schema'
+import {
+  cases, serviceFacts, caseContext, evidenceItems, nexusAnswers, drafts, aiUsage, entitlements,
+} from '@/db/schema'
 
 afterAll(closeDb)
 
@@ -47,6 +49,33 @@ describe('schema invariants', () => {
       db().insert(drafts).values({
         caseId: c.id, ownerId: stranger, kind: 'personal_statement', content: 'hijacked',
       }),
+    ).rejects.toSatisfy((e) => pgCode(e) === '23503')
+  })
+
+  it('case_context cannot carry an owner_id its case does not have (23503)', async () => {
+    const owner = freshOwner()
+    const stranger = freshOwner()
+    const [c] = await db().insert(cases).values({ ownerId: owner }).returning()
+    await expect(
+      db().insert(caseContext).values({ caseId: c.id, ownerId: stranger, conditionCategory: 'ptsd' }),
+    ).rejects.toSatisfy((e) => pgCode(e) === '23503')
+  })
+
+  it('evidence_items cannot carry an owner_id its case does not have (23503)', async () => {
+    const owner = freshOwner()
+    const stranger = freshOwner()
+    const [c] = await db().insert(cases).values({ ownerId: owner }).returning()
+    await expect(
+      db().insert(evidenceItems).values({ caseId: c.id, ownerId: stranger, itemType: 'dd214' }),
+    ).rejects.toSatisfy((e) => pgCode(e) === '23503')
+  })
+
+  it('nexus_answers cannot carry an owner_id its case does not have (23503)', async () => {
+    const owner = freshOwner()
+    const stranger = freshOwner()
+    const [c] = await db().insert(cases).values({ ownerId: owner }).returning()
+    await expect(
+      db().insert(nexusAnswers).values({ caseId: c.id, ownerId: stranger, q1Condition: 'hijacked' }),
     ).rejects.toSatisfy((e) => pgCode(e) === '23503')
   })
 
@@ -115,5 +144,77 @@ describe('schema invariants', () => {
     })
     expect(await db().select().from(aiUsage).where(eq(aiUsage.ownerId, owner))).toEqual([])
     expect(await db().select().from(entitlements).where(eq(entitlements.ownerId, owner))).toEqual([])
+  })
+
+  it('the ledger guard leaves INSERT alone: both ledgers accept new rows', async () => {
+    // The guard is BEFORE UPDATE OR DELETE plus BEFORE TRUNCATE. An append-only
+    // table that also refused appends would be a very quiet outage.
+    const owner = freshOwner()
+    const [usage] = await db().insert(aiUsage)
+      .values({ ownerId: owner, task: 'ping', model: 'm', inputTokens: 1, outputTokens: 1 })
+      .returning()
+    const [entitlement] = await db().insert(entitlements)
+      .values({ ownerId: owner, stripeSessionId: `cs_${owner}` })
+      .returning()
+    expect(usage).toMatchObject({ ownerId: owner, task: 'ping' })
+    expect(entitlement).toMatchObject({ ownerId: owner, kind: 'case_unlock' })
+  })
+
+  it('allow_ledger_delete is transaction-local: a concurrent transaction is still refused, and so is the next statement after commit', async () => {
+    const alice = freshOwner()
+    const bob = freshOwner()
+    await db().insert(aiUsage).values([
+      { ownerId: alice, task: 'ping', model: 'm', inputTokens: 1, outputTokens: 1 },
+      { ownerId: bob, task: 'ping', model: 'm', inputTokens: 1, outputTokens: 1 },
+    ])
+
+    // Two connections from the pool, handshaking so the second DELETE is
+    // attempted while the first transaction is still open with the GUC on.
+    // Different owners on purpose: the BEFORE DELETE trigger locks the target
+    // row first, so aiming both at the same row would just block the second
+    // transaction behind the first instead of testing the setting's scope.
+    let firstHasDeleted!: () => void
+    const firstDeleted = new Promise<void>((resolve) => { firstHasDeleted = resolve })
+    let secondIsDone!: () => void
+    const secondDone = new Promise<void>((resolve) => { secondIsDone = resolve })
+
+    const first = db().transaction(async (tx) => {
+      try {
+        await tx.execute(sql.raw(`SET LOCAL recharacter.allow_ledger_delete = 'on'`))
+        const gone = await tx.delete(aiUsage).where(eq(aiUsage.ownerId, alice)).returning({ id: aiUsage.id })
+        expect(gone).toHaveLength(1)
+      } finally {
+        firstHasDeleted()
+      }
+      // Hold the transaction open — GUC still 'on' on THIS connection — until
+      // the other connection has had its answer.
+      await secondDone
+    })
+
+    const second = db().transaction(async (tx) => {
+      await firstDeleted
+      try {
+        await tx.delete(aiUsage).where(eq(aiUsage.ownerId, bob))
+      } finally {
+        secondIsDone()
+      }
+    })
+
+    const [, outcome] = await Promise.all([
+      first,
+      second.then(() => 'resolved' as const, (err: unknown) => err),
+    ])
+    expect(outcome).not.toBe('resolved')
+    expect(pgCode(outcome)).toBe('42501')
+
+    // Committed: Alice's row is gone, the setting went with the transaction.
+    expect(await db().select().from(aiUsage).where(eq(aiUsage.ownerId, alice))).toEqual([])
+    const [{ setting }] = await db().execute<{ setting: string | null }>(
+      sql`select current_setting('recharacter.allow_ledger_delete', true) as setting`,
+    )
+    expect(setting).not.toBe('on')
+    await expect(db().delete(aiUsage).where(eq(aiUsage.ownerId, bob)))
+      .rejects.toSatisfy((e) => pgCode(e) === '42501')
+    expect(await db().select().from(aiUsage).where(eq(aiUsage.ownerId, bob))).toHaveLength(1)
   })
 })
