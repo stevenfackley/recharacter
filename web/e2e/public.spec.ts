@@ -106,11 +106,16 @@ test.describe('proxy: what is guarded and what is not', () => {
       const base = requireBase(baseURL)
       const res = await request.get(path, { maxRedirects: 0 })
       expect(res.status()).toBe(307)
-      // Next normalises a same-origin proxy redirect to an origin-relative
-      // Location, so this assertion is identical on localhost and on prod.
+      // Location is origin-relative from `next start` but absolute from behind
+      // Cloudflare, so resolve whatever arrives against the target's own origin
+      // and compare destinations rather than spelling. Same-origin is asserted
+      // too: an absolute Location pointing anywhere else would be an open
+      // redirect, and comparing only pathname+search would not notice.
       const expected = new URL('/login', base)
       expected.searchParams.set('next', path)
-      expect(res.headers()['location']).toBe(`${expected.pathname}${expected.search}`)
+      const location = new URL(res.headers()['location'], base)
+      expect(location.origin).toBe(new URL(base).origin)
+      expect(`${location.pathname}${location.search}`).toBe(`${expected.pathname}${expected.search}`)
     })
   }
 
