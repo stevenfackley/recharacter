@@ -29,21 +29,41 @@ import type { KeycloakAdmin } from '@/lib/keycloak-admin'
 // Real magic bytes: putCaseDocument sniffs the content type and rejects anything else.
 const pdfBytes = new TextEncoder().encode('%PDF-1.7\n%seeded discharge packet\n')
 
-/** Every table an owner has rows in, keyed by its real Postgres name. */
+/**
+ * Every table an owner has rows in, keyed by its real Postgres name. The eleven
+ * reads are independent, so they share the pool rather than queue eleven
+ * round trips behind one another.
+ */
 async function counts(ownerId: string): Promise<Record<string, number>> {
   const len = (rows: unknown[]) => rows.length
+  const [
+    caseRows, factRows, contextRows, evidenceRows, nexusRows, draftRows,
+    usageRows, attemptRows, credentialRows, entitlementRows, checkoutRows,
+  ] = await Promise.all([
+    db().select({ id: cases.id }).from(cases).where(eq(cases.ownerId, ownerId)),
+    db().select({ id: serviceFacts.id }).from(serviceFacts).where(eq(serviceFacts.ownerId, ownerId)),
+    db().select({ id: caseContext.id }).from(caseContext).where(eq(caseContext.ownerId, ownerId)),
+    db().select({ id: evidenceItems.id }).from(evidenceItems).where(eq(evidenceItems.ownerId, ownerId)),
+    db().select({ id: nexusAnswers.id }).from(nexusAnswers).where(eq(nexusAnswers.ownerId, ownerId)),
+    db().select({ id: drafts.id }).from(drafts).where(eq(drafts.ownerId, ownerId)),
+    db().select({ id: aiUsage.id }).from(aiUsage).where(eq(aiUsage.ownerId, ownerId)),
+    db().select({ id: aiAttempts.id }).from(aiAttempts).where(eq(aiAttempts.ownerId, ownerId)),
+    db().select({ id: aiCredentials.ownerId }).from(aiCredentials).where(eq(aiCredentials.ownerId, ownerId)),
+    db().select({ id: entitlements.id }).from(entitlements).where(eq(entitlements.ownerId, ownerId)),
+    db().select({ id: pendingCheckouts.id }).from(pendingCheckouts).where(eq(pendingCheckouts.ownerId, ownerId)),
+  ])
   return {
-    cases: len(await db().select({ id: cases.id }).from(cases).where(eq(cases.ownerId, ownerId))),
-    service_facts: len(await db().select({ id: serviceFacts.id }).from(serviceFacts).where(eq(serviceFacts.ownerId, ownerId))),
-    case_context: len(await db().select({ id: caseContext.id }).from(caseContext).where(eq(caseContext.ownerId, ownerId))),
-    evidence_items: len(await db().select({ id: evidenceItems.id }).from(evidenceItems).where(eq(evidenceItems.ownerId, ownerId))),
-    nexus_answers: len(await db().select({ id: nexusAnswers.id }).from(nexusAnswers).where(eq(nexusAnswers.ownerId, ownerId))),
-    drafts: len(await db().select({ id: drafts.id }).from(drafts).where(eq(drafts.ownerId, ownerId))),
-    ai_usage: len(await db().select({ id: aiUsage.id }).from(aiUsage).where(eq(aiUsage.ownerId, ownerId))),
-    ai_attempts: len(await db().select({ id: aiAttempts.id }).from(aiAttempts).where(eq(aiAttempts.ownerId, ownerId))),
-    ai_credentials: len(await db().select({ id: aiCredentials.ownerId }).from(aiCredentials).where(eq(aiCredentials.ownerId, ownerId))),
-    entitlements: len(await db().select({ id: entitlements.id }).from(entitlements).where(eq(entitlements.ownerId, ownerId))),
-    pending_checkouts: len(await db().select({ id: pendingCheckouts.id }).from(pendingCheckouts).where(eq(pendingCheckouts.ownerId, ownerId))),
+    cases: len(caseRows),
+    service_facts: len(factRows),
+    case_context: len(contextRows),
+    evidence_items: len(evidenceRows),
+    nexus_answers: len(nexusRows),
+    drafts: len(draftRows),
+    ai_usage: len(usageRows),
+    ai_attempts: len(attemptRows),
+    ai_credentials: len(credentialRows),
+    entitlements: len(entitlementRows),
+    pending_checkouts: len(checkoutRows),
   }
 }
 
@@ -54,24 +74,34 @@ const ALL_TABLES = [
 
 const everyTable = (n: number) => Object.fromEntries(ALL_TABLES.map((t) => [t, n]))
 
-/** One row in every owner-scoped table plus one stored document. */
+/**
+ * One row in every owner-scoped table plus one stored document.
+ *
+ * Only the case row has to land first (the five case-scoped children reference
+ * it); the other ten inserts and the object put are independent, so they run
+ * together. Twelve sequential round trips were the whole cost of this
+ * function, and under the full run — the unit project competing for CPU — that
+ * was enough to push a single case past the old per-test budget.
+ */
 async function seed(ownerId: string, store: MemoryObjectStore) {
   const [c] = await db().insert(cases).values({ ownerId }).returning({ id: cases.id })
   const caseId = c.id
-  await db().insert(serviceFacts).values({
-    caseId, ownerId, branch: 'Army', dischargeDate: '2015-04-01',
-    characterization: 'OtherThanHonorable',
-  })
-  await db().insert(caseContext).values({ caseId, ownerId, conditionCategory: 'ptsd' })
-  await db().insert(evidenceItems).values({ caseId, ownerId, itemType: 'dd214', status: 'collected' })
-  await db().insert(nexusAnswers).values({ caseId, ownerId, q1Condition: 'seeded answer' })
-  await db().insert(drafts).values({ caseId, ownerId, kind: 'personal_statement', content: 'seeded draft' })
-  await db().insert(aiUsage).values({ ownerId, task: 'ping', model: 'test', inputTokens: 1, outputTokens: 1 })
-  await db().insert(aiAttempts).values({ ownerId, task: 'ping' })
-  await db().insert(aiCredentials).values({ ownerId, encryptedKey: `SECRET_CIPHERTEXT_${ownerId}` })
-  await db().insert(entitlements).values({ ownerId, kind: 'case_unlock', stripeSessionId: `cs_ent_${ownerId}` })
-  await db().insert(pendingCheckouts).values({ ownerId, stripeSessionId: `cs_pend_${ownerId}` })
-  const { key } = await putCaseDocument(store, ownerId, caseId, 'dd214.pdf', pdfBytes)
+  const [{ key }] = await Promise.all([
+    putCaseDocument(store, ownerId, caseId, 'dd214.pdf', pdfBytes),
+    db().insert(serviceFacts).values({
+      caseId, ownerId, branch: 'Army', dischargeDate: '2015-04-01',
+      characterization: 'OtherThanHonorable',
+    }),
+    db().insert(caseContext).values({ caseId, ownerId, conditionCategory: 'ptsd' }),
+    db().insert(evidenceItems).values({ caseId, ownerId, itemType: 'dd214', status: 'collected' }),
+    db().insert(nexusAnswers).values({ caseId, ownerId, q1Condition: 'seeded answer' }),
+    db().insert(drafts).values({ caseId, ownerId, kind: 'personal_statement', content: 'seeded draft' }),
+    db().insert(aiUsage).values({ ownerId, task: 'ping', model: 'test', inputTokens: 1, outputTokens: 1 }),
+    db().insert(aiAttempts).values({ ownerId, task: 'ping' }),
+    db().insert(aiCredentials).values({ ownerId, encryptedKey: `SECRET_CIPHERTEXT_${ownerId}` }),
+    db().insert(entitlements).values({ ownerId, kind: 'case_unlock', stripeSessionId: `cs_ent_${ownerId}` }),
+    db().insert(pendingCheckouts).values({ ownerId, stripeSessionId: `cs_pend_${ownerId}` }),
+  ])
   return { caseId, key }
 }
 

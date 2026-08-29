@@ -23,8 +23,20 @@ export default defineConfig({
       },
       {
         // Integration suites talk to Postgres/S3 and need real Blob/FormData/sockets.
+        //
+        // The 5 s default budget is a unit-test budget. A single case here can
+        // be a dozen round trips to a real database plus an object store, and
+        // under the full run the unit project competes for the same CPU — a
+        // suite that takes ~5 s alone has been measured at ~16 s under load.
+        // Scoped to this project so unit tests keep the tight default.
         extends: true,
-        test: { name: 'integration', include: ['tests/**/*.test.ts'], environment: 'node' },
+        test: {
+          name: 'integration',
+          include: ['tests/**/*.test.ts'],
+          environment: 'node',
+          testTimeout: 30_000,
+          hookTimeout: 30_000,
+        },
       },
     ],
   },
