@@ -142,4 +142,115 @@ public class RouteEndpointTests(WebApplicationFactory<Program> factory)
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("application/problem+json", response.Content.Headers.ContentType?.ToString());
     }
+
+    [Fact]
+    public async Task Get_Healthz_ContentTypeIsApplicationJson()
+    {
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/healthz");
+
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("utf-8", response.Content.Headers.ContentType?.CharSet);
+    }
+
+    [Fact]
+    public async Task Post_Route_EnumsRoundTripAsStrings_NotIntegers()
+    {
+        // JsonStringEnumConverter is registered on the HTTP JSON options: enums are accepted by
+        // name on the way in, and every enum-typed field and array element comes back as a JSON
+        // string. The Next.js consumer keys on these names, so an integer would be a breaking change.
+        var client = factory.CreateClient();
+
+        var body = new
+        {
+            branch = "Army",
+            dischargeDate = "2024-06-01",
+            characterization = "Honorable", // yields exactly one flag, so the flags array is non-empty
+            wasGeneralCourtMartial = false
+        };
+
+        var response = await client.PostAsJsonAsync("/route", body);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        var board = root.GetProperty("recommendedBoard");
+        Assert.Equal(JsonValueKind.String, board.ValueKind);
+        Assert.Equal("Drb", board.GetString());
+
+        var form = root.GetProperty("recommendedForm");
+        Assert.Equal(JsonValueKind.String, form.ValueKind);
+        Assert.Equal("DD293", form.GetString());
+
+        var availableBoards = root.GetProperty("availableBoards").EnumerateArray().ToArray();
+        Assert.All(availableBoards, b => Assert.Equal(JsonValueKind.String, b.ValueKind));
+        Assert.Equal(new[] { "Drb", "Bcmr" }, availableBoards.Select(b => b.GetString()).ToArray());
+
+        var flags = root.GetProperty("flags").EnumerateArray().ToArray();
+        Assert.All(flags, f => Assert.Equal(JsonValueKind.String, f.ValueKind));
+        Assert.Equal(new[] { "AlreadyHonorableNothingToUpgrade" }, flags.Select(f => f.GetString()).ToArray());
+    }
+
+    [Theory]
+    [InlineData("""{ "branch": "Starfleet", "dischargeDate": "2024-06-01", "characterization": "OtherThanHonorable" }""")]
+    [InlineData("""{ "branch": "Army", "dischargeDate": "not-a-date", "characterization": "OtherThanHonorable" }""")]
+    public async Task Post_Route_UnbindableFieldValue_Returns400ProblemJson(string rawJson)
+    {
+        // Unknown enum name and unparseable date are both System.Text.Json failures inside model
+        // binding: they surface as BadHttpRequestException, which the exception handler's
+        // StatusCodeSelector must map back to 400 problem+json rather than the default 500.
+        var client = factory.CreateClient();
+
+        var content = new StringContent(rawJson, Encoding.UTF8, "application/json");
+        var response = await client.PostAsync("/route", content);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("application/problem+json", response.Content.Headers.ContentType?.ToString());
+    }
+
+    [Fact]
+    public async Task Post_Route_UndefinedBranchInteger_Returns400ProblemJson()
+    {
+        // JsonStringEnumConverter still accepts integer literals, so 999 binds to (Branch)999 and
+        // gets past model binding. BoardDirectory then throws ArgumentOutOfRangeException, which is
+        // an ArgumentException and so hits the endpoint's domain guard: 400 problem+json, not a 500.
+        var client = factory.CreateClient();
+
+        var content = new StringContent(
+            """{ "branch": 999, "dischargeDate": "2024-06-01", "characterization": "OtherThanHonorable" }""",
+            Encoding.UTF8, "application/json");
+        var response = await client.PostAsync("/route", content);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("application/problem+json", response.Content.Headers.ContentType?.ToString());
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+
+        Assert.Contains("Unknown branch", doc.RootElement.GetProperty("detail").GetString());
+    }
+
+    [Fact]
+    public async Task Get_UnknownRoute_Returns404ProblemJson()
+    {
+        // Nothing threw here — no endpoint matched — so this is the UseStatusCodePages path, which
+        // hands the bare 404 to the IProblemDetailsService registered by AddProblemDetails.
+        var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/nope");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Contains("application/problem+json", response.Content.Headers.ContentType?.ToString());
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        Assert.Equal(404, root.GetProperty("status").GetInt32());
+        Assert.Equal("Not Found", root.GetProperty("title").GetString());
+    }
 }
