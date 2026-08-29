@@ -149,3 +149,31 @@ jobs:
             sleep 10
           done
           echo "recharacter.us/login did not return 200 after deploy (last: $code)"; exit 1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        working-directory: web
+        run: npm ci
+      - name: Install Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: E2E against the live site
+        working-directory: web
+        # Both suites, against what was just deployed. The lifecycle suite can
+        # only run here: it registers a throwaway account on the live realm, and
+        # https://recharacter.us is one of the two origins the `recharacter-web`
+        # client will redirect back to. It deletes the account it creates, and
+        # retries the deletion once if the run fails part-way.
+        env:
+          E2E_BASE_URL: https://recharacter.us
+          E2E_ALLOW_REGISTRATION: '1'
+        run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-prod
+          path: web/playwright-report
+          retention-days: 7
