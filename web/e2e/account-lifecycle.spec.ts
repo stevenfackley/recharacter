@@ -133,12 +133,17 @@ test('register, hold a session, export, delete — and the realm user is gone', 
     await page.getByRole('button', { name: 'Create your account' }).click()
     await page.waitForURL(KEYCLOAK)
 
-    await page.getByLabel('Username', { exact: true }).fill(account.username)
-    await page.getByLabel('Password', { exact: true }).fill(account.password)
-    await page.getByLabel('Confirm password', { exact: true }).fill(account.password)
-    await page.getByLabel('Email', { exact: true }).fill(account.email)
-    await page.getByLabel('First name', { exact: true }).fill('E2E')
-    await page.getByLabel('Last name', { exact: true }).fill('Test')
+    // Role + accessible name, not getByLabel: Keycloak renders required fields
+    // with a trailing asterisk, so the *label text* is "Username *" while the
+    // input's accessible name is "Username". getByLabel(..., exact) matched
+    // nothing and the first live run sat here until it timed out. Password
+    // inputs do expose the textbox role, so one form works for every field.
+    await page.getByRole('textbox', { name: 'Username', exact: true }).fill(account.username)
+    await page.getByRole('textbox', { name: 'Password', exact: true }).fill(account.password)
+    await page.getByRole('textbox', { name: 'Confirm password', exact: true }).fill(account.password)
+    await page.getByRole('textbox', { name: 'Email', exact: true }).fill(account.email)
+    await page.getByRole('textbox', { name: 'First name', exact: true }).fill('E2E')
+    await page.getByRole('textbox', { name: 'Last name', exact: true }).fill('Test')
     await page.getByRole('button', { name: 'Register' }).click()
 
     // safeNext's default destination for a signup with no ?next=.
@@ -184,8 +189,8 @@ test('register, hold a session, export, delete — and the realm user is gone', 
     // refusing the credentials proves the admin-svc deletion path actually ran.
     await page.getByRole('button', { name: 'Sign in' }).click()
     await page.waitForURL(KEYCLOAK)
-    await page.getByLabel('Username or email', { exact: true }).fill(account.username)
-    await page.getByLabel('Password', { exact: true }).fill(account.password)
+    await page.getByRole('textbox', { name: 'Username or email', exact: true }).fill(account.username)
+    await page.getByRole('textbox', { name: 'Password', exact: true }).fill(account.password)
     await page.getByRole('button', { name: 'Sign In' }).click()
     await expect(page.getByText('Invalid username or password.')).toBeVisible()
   })
