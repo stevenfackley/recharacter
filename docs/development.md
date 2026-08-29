@@ -14,7 +14,7 @@
 git clone https://github.com/stevenfackley/recharacter && cd recharacter
 
 # .NET
-dotnet build && dotnet test          # 20+ rules-engine tests + API integration tests
+dotnet build && dotnet test          # rules-engine unit tests + API integration tests
 
 # Local stack (from repo root) — Postgres 17 on :55433, MinIO on :9100 (console :9101)
 docker compose -f compose.dev.yaml up -d
@@ -52,7 +52,9 @@ dotnet run --project src/ReCharacter.RoutingApi   # routing API (POST /route)
 
 cd web
 npx vitest run src                                # unit tests (no stack needed)
-npx vitest run tests                              # owner-scoping integration tests (stack must be up)
+npx vitest run tests                              # integration tests (stack must be up) — owner
+                                                  # scoping, the export route, the migrator
+npm run e2e:public                                # end-to-end, no credentials (see below)
 npm run lint
 npx tsc --noEmit
 npm run build                                     # production build
