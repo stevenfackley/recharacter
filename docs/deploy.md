@@ -92,6 +92,19 @@ same as the rest of the fleet.
 
 ## Cutover runbook (Steve; app secrets never enter git)
 
+**One-shot version:** `deploy/cutover.ps1` does steps 2–5 below in one run over SSM (the
+same transport as qavren-auth's `infra/update-realms.ps1`): rotates the prod role, reads
+the admin-client secret off the auth box, rewrites the box `.env` (previous file kept as
+`.env.pre-qavren-<stamp>`), sets `DATABASE_URL_MIGRATE`, dispatches Deploy and smokes
+`/login`. Only step 1 (the R2 bucket + token) is a dashboard step.
+
+```powershell
+pwsh deploy/cutover.ps1 -R2AccessKeyId <id>          # preflight + plan, changes nothing
+pwsh deploy/cutover.ps1 -R2AccessKeyId <id> -Apply   # the cutover; prompts for the R2 secret
+```
+
+Manual equivalent:
+
 1. R2: create bucket `recharacter-case-documents` (private), an R2 API token scoped to it (Object Read & Write) → `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`.
 2. qavren-db: `cd C:\Users\steve\projects\qavren-db; pwsh tools/provision-app.ps1 -App recharacter -Env prod -RotatePassword` → build `DATABASE_URL` (`…pooler.supabase.com:6543`) and `DATABASE_URL_MIGRATE` (`:5432`) → `gh secret set DATABASE_URL_MIGRATE -R stevenfackley/recharacter`; put `DATABASE_URL` in the box `.env`.
 3. qavren-auth: confirm the auth box holds `RECHARACTER_ADMIN_CLIENT_SECRET` (compose.prod.yaml refuses to start without it); copy the same value to the box `.env` as `QAVREN_ADMIN_CLIENT_SECRET`.
