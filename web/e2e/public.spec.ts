@@ -151,6 +151,26 @@ test.describe('sign-in handoff', () => {
   const AUTHORIZE = /^https:\/\/auth\.recharacter\.us\//
 
   /**
+   * The authorization request is the artefact under test, so the realm itself is
+   * stubbed: the browser is allowed to navigate to auth.recharacter.us but the
+   * response is served locally. Two reasons. This suite gates merges, and a
+   * required check must not fail because a third-party host is having a bad
+   * minute. And the run stays hermetic — no traffic to the live realm from every
+   * PR, and identical behaviour whether the target is localhost (whose origin is
+   * not a registered redirect URI, so Keycloak would answer with an error page)
+   * or production (where it would answer with a real login form).
+   */
+  test.beforeEach(async ({ page }) => {
+    await page.route(AUTHORIZE, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: '<!doctype html><title>stub realm</title>',
+      }),
+    )
+  })
+
+  /**
    * Assert the authorization request itself. We never go past the Keycloak page
    * — from a target whose origin is not a registered redirect URI Keycloak
    * renders an error there, and that is fine: the URL is the artefact under test.
