@@ -27,4 +27,17 @@ public class BoardDirectoryTests
         foreach (var branch in Enum.GetValues<Branch>())
             BoardDirectory.For(branch);
     }
+
+    [Fact]
+    public void For_UndefinedBranchValue_ThrowsArgumentOutOfRange()
+    {
+        // The switch has no catch-all mapping: an integer that is not a defined Branch member
+        // (e.g. a stale value off the wire) must fail loudly rather than silently pick a board.
+        var undefined = (Branch)999;
+
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => BoardDirectory.For(undefined));
+
+        Assert.Equal("branch", ex.ParamName);
+        Assert.Equal(undefined, ex.ActualValue);
+    }
 }

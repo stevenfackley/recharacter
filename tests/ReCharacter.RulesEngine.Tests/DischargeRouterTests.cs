@@ -300,4 +300,104 @@ public class DischargeRouterTests
 
         Assert.True(result.DrbWindowOpen);
     }
+
+    [Theory]
+    [InlineData(2024, 6, 1, false, new[] { ReviewBoard.Drb, ReviewBoard.Bcmr })] // in window, not GCM
+    [InlineData(2009, 1, 1, false, new[] { ReviewBoard.Bcmr })]                  // past window
+    [InlineData(2024, 6, 1, true, new[] { ReviewBoard.Bcmr })]                   // GCM, window still open
+    [InlineData(2009, 1, 1, true, new[] { ReviewBoard.Bcmr })]                   // GCM and past window
+    public void Route_AvailableBoards_ListsDrbOnlyWhenWindowOpenAndNotCourtMartial(
+        int year, int month, int day, bool wasGeneralCourtMartial, ReviewBoard[] expected)
+    {
+        // Pins the exact composition and order. A BCD can come from either a special court-martial
+        // (DRB-reviewable) or a general court-martial (BCMR only), so the flag alone drives the
+        // difference between rows with the same date. BCMR is always listed, last.
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.Navy,
+            DischargeDate = new DateOnly(year, month, day),
+            Characterization = DischargeCharacterization.BadConductDischarge,
+            WasGeneralCourtMartial = wasGeneralCourtMartial
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.Equal(expected, result.AvailableBoards);
+    }
+
+    [Fact]
+    public void Route_GeneralUnderHonorable_WithinWindow_RecommendsDrbWithNoFlags()
+    {
+        // General (Under Honorable Conditions) is the most common upgrade candidate and has no
+        // special case of its own: unlike Honorable there is something to upgrade, and unlike
+        // Uncharacterized there is no entry-level caveat. It routes exactly like an OTH.
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.Army,
+            DischargeDate = new DateOnly(2024, 6, 1),
+            Characterization = DischargeCharacterization.GeneralUnderHonorable,
+            WasGeneralCourtMartial = false
+        };
+
+        var result = RouterAt(2026, 7, 5).Route(facts);
+
+        Assert.Equal(ReviewBoard.Drb, result.RecommendedBoard);
+        Assert.Equal(ApplicationForm.DD293, result.RecommendedForm);
+        Assert.Equal("ADRB", result.BoardName);
+        Assert.True(result.DrbWindowOpen);
+        Assert.Equal(new DateOnly(2039, 6, 1), result.DrbDeadline);
+        Assert.Equal(new[] { ReviewBoard.Drb, ReviewBoard.Bcmr }, result.AvailableBoards);
+        Assert.Empty(result.Flags);
+    }
+
+    [Theory]
+    [InlineData(2024, 6, 1)]  // in window
+    [InlineData(2009, 1, 1)]  // past window: the deadline is still populated, as a past date
+    [InlineData(2008, 2, 29)] // leap-day discharge: inherits DrbWindow's Feb-28 clamp
+    public void Route_DrbDeadline_EqualsDrbWindowDeadlineForDischargeDate(int year, int month, int day)
+    {
+        // The router must delegate to DrbWindow rather than carry its own copy of the 15-year math.
+        var asOf = new DateOnly(2026, 7, 5);
+        var dischargeDate = new DateOnly(year, month, day);
+        var facts = new DischargeFacts
+        {
+            Branch = Branch.Army,
+            DischargeDate = dischargeDate,
+            Characterization = DischargeCharacterization.OtherThanHonorable
+        };
+
+        var result = new DischargeRouter(new FakeClock(asOf)).Route(facts);
+
+        Assert.Equal(DrbWindow.Deadline(dischargeDate), result.DrbDeadline);
+        Assert.Equal(DrbWindow.IsOpen(dischargeDate, asOf), result.DrbWindowOpen);
+    }
+
+    [Theory]
+    [InlineData(Branch.Army, "ADRB", "ABCMR")]
+    [InlineData(Branch.Navy, "NDRB", "BCNR")]
+    [InlineData(Branch.MarineCorps, "NDRB", "BCNR")]
+    [InlineData(Branch.AirForce, "AFDRB", "AFBCMR")]
+    [InlineData(Branch.SpaceForce, "AFDRB", "AFBCMR")]
+    [InlineData(Branch.CoastGuard, "CGDRB", "BCMR (DHS)")]
+    public void Route_EveryBranch_UsesBoardDirectoryNameForTheRecommendedBoard(
+        Branch branch, string drbName, string bcmrName)
+    {
+        var router = RouterAt(2026, 7, 5);
+
+        var inWindow = router.Route(new DischargeFacts
+        {
+            Branch = branch,
+            DischargeDate = new DateOnly(2024, 6, 1),
+            Characterization = DischargeCharacterization.OtherThanHonorable
+        });
+        var pastWindow = router.Route(new DischargeFacts
+        {
+            Branch = branch,
+            DischargeDate = new DateOnly(2009, 1, 1),
+            Characterization = DischargeCharacterization.OtherThanHonorable
+        });
+
+        Assert.Equal(drbName, inWindow.BoardName);
+        Assert.Equal(bcmrName, pastWindow.BoardName);
+    }
 }
