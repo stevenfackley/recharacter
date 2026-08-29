@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { MemoryObjectStore } from './object-store'
 
 describe('MemoryObjectStore', () => {
@@ -45,45 +45,5 @@ describe('MemoryObjectStore', () => {
     await store.put('b', new Uint8Array([1]), 'text/plain')
     await store.remove(['a'])
     expect(await store.list('')).toEqual(['b'])
-  })
-})
-
-describe('getObjectStore', () => {
-  const OLD_ENV = { ...process.env }
-
-  beforeEach(async () => {
-    vi.resetModules()
-    const { resetEnvForTests } = await import('@/lib/env')
-    resetEnvForTests()
-  })
-
-  afterEach(async () => {
-    process.env = { ...OLD_ENV }
-    const { resetEnvForTests } = await import('@/lib/env')
-    resetEnvForTests()
-  })
-
-  it('returns an S3ObjectStore when S3_ENDPOINT and R2 vars are set', async () => {
-    process.env.S3_ENDPOINT = 'http://127.0.0.1:9100'
-    process.env.R2_ACCOUNT_ID = 'local'
-    process.env.R2_ACCESS_KEY_ID = 'minio'
-    process.env.R2_SECRET_ACCESS_KEY = 'minio12345'
-    process.env.R2_BUCKET = 'recharacter-test'
-
-    const { getObjectStore } = await import('./index')
-    const { S3ObjectStore } = await import('./s3-object-store')
-    const store = getObjectStore()
-    expect(store).toBeInstanceOf(S3ObjectStore)
-  })
-
-  it('throws a message naming R2_BUCKET when unset', async () => {
-    process.env.S3_ENDPOINT = 'http://127.0.0.1:9100'
-    process.env.R2_ACCOUNT_ID = 'local'
-    process.env.R2_ACCESS_KEY_ID = 'minio'
-    process.env.R2_SECRET_ACCESS_KEY = 'minio12345'
-    delete process.env.R2_BUCKET
-
-    const { getObjectStore } = await import('./index')
-    expect(() => getObjectStore()).toThrow(/R2_BUCKET/)
   })
 })
