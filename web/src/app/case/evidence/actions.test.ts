@@ -342,6 +342,21 @@ describe('setItemStatus', () => {
     expect(mockSetEvidenceStatus).not.toHaveBeenCalled()
   })
 
+  test('an Object.prototype key does not pass the catalog allowlist', async () => {
+    // `itemType in EVIDENCE_CATALOG` walked the prototype chain, so these
+    // reached the DB and came back as save_failed instead of the silent
+    // redirect the guard promises.
+    const { setItemStatus } = await import('./actions')
+
+    for (const proto of ['constructor', 'toString', 'hasOwnProperty', 'valueOf', '__proto__']) {
+      redirectSpy.mockClear()
+      await expect(setItemStatus(statusForm(proto, 'collected')), proto).rejects.toThrow('NEXT_REDIRECT')
+      expect(redirectSpy, proto).toHaveBeenCalledWith('/case/evidence')
+    }
+    expect(mockGetOrCreateCase).not.toHaveBeenCalled()
+    expect(mockSetEvidenceStatus).not.toHaveBeenCalled()
+  })
+
   test('the status is checked before the item type (both bad → still one redirect)', async () => {
     const { setItemStatus } = await import('./actions')
 
