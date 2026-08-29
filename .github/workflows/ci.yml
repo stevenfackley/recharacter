@@ -101,3 +101,77 @@ jobs:
       - name: Full test suite (incl. owner-scoping isolation)
         working-directory: web
         run: npx vitest run
+
+  web-e2e:
+    # Not (yet) in the required set on `main` — branch protection names the
+    # three jobs above verbatim, and adding this one there is a separate,
+    # deliberate change to the ruleset.
+    name: Web (e2e, public)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: recharacter
+          POSTGRES_PASSWORD: recharacter
+          POSTGRES_DB: recharacter
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U recharacter -d recharacter"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://recharacter:recharacter@127.0.0.1:5432/recharacter
+      S3_ENDPOINT: http://127.0.0.1:9000
+      R2_ACCOUNT_ID: local
+      R2_ACCESS_KEY_ID: minio
+      R2_SECRET_ACCESS_KEY: minio12345
+      R2_BUCKET: recharacter-ci
+      AUTH_SECRET: ci-dummy-secret-at-least-32-bytes-long-000
+      AI_KEY_ENCRYPTION_SECRET: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      # The sign-in handoff cases assert the authorization request we build for
+      # the real realm — they stop at Keycloak's page and never sign in.
+      QAVREN_AUTH_URL: https://auth.recharacter.us
+      # Playwright starts `next start -p 3123` itself (playwright.config.ts), so
+      # the OAuth redirect_uri and the sign-out Origin check must name that port.
+      AUTH_URL: http://localhost:3123
+      APP_BASE_URL: http://localhost:3123
+      # E2E_BASE_URL deliberately UNSET: setting it would skip the webServer and
+      # point this job at a deployed site instead.
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 -e MINIO_ROOT_USER=minio -e MINIO_ROOT_PASSWORD=minio12345 minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+          ready=0
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:9000/minio/health/live && ready=1 && break; sleep 1; done
+          [ "$ready" = 1 ] || { echo 'minio never became ready'; docker logs minio | tail -20; exit 1; }
+      - name: Install
+        working-directory: web
+        run: npm ci
+      - name: Install Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Migrate
+        working-directory: web
+        run: npm run db:migrate
+      - name: Build
+        working-directory: web
+        run: npm run build
+      - name: Public e2e suite
+        working-directory: web
+        run: npx playwright test e2e/public.spec.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-ci
+          path: web/playwright-report
+          retention-days: 7
