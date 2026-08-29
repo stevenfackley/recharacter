@@ -1,7 +1,5 @@
 # Next.js web app — standalone output, runtime-configured.
-# All Supabase access is server-side (nothing imports the browser client), so
-# NEXT_PUBLIC_* values here are harmless build placeholders; the real values
-# are injected as runtime env on the host.
+# All config is runtime env (see deploy/env.example); the build opens no connections.
 
 FROM node:26-alpine AS deps
 WORKDIR /app
@@ -12,9 +10,7 @@ FROM node:26-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY web/ ./
-ENV NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321 \
-    NEXT_PUBLIC_SUPABASE_ANON_KEY=build-placeholder \
-    NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 FROM node:26-alpine AS run

@@ -1,14 +1,9 @@
 'use server'
 
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { signIn } from '@/auth'
+import { safeNext } from '@/lib/session'
 
-export async function login(formData: FormData) {
-  const supabase = await createClient()
-  const { error } = await supabase.auth.signInWithPassword({
-    email: String(formData.get('email')),
-    password: String(formData.get('password')),
-  })
-  if (error) redirect(`/login?error=${encodeURIComponent(error.message)}`)
-  redirect('/case')
+/** Hands off to the realm's sign-in screen; Auth.js completes the PKCE dance. */
+export async function loginAction(formData: FormData) {
+  await signIn('keycloak', { redirectTo: safeNext(formData.get('next')) })
 }

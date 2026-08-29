@@ -294,6 +294,11 @@ export const TASKS: Record<string, AiTask> = {
   shape_nexus_answer, draft_statement, draft_cover_letter,
 }
 
+/**
+ * Own properties only. A plain index walks the prototype chain, so an
+ * attacker-supplied 'constructor' or '__proto__' would resolve to a truthy
+ * non-task and be executed as one instead of 404ing.
+ */
 export function getTask(name: string): AiTask | undefined {
-  return TASKS[name]
+  return Object.hasOwn(TASKS, name) ? TASKS[name as keyof typeof TASKS] : undefined
 }

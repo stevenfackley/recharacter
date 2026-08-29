@@ -1,57 +1,82 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import { executeAiTask } from '@/lib/ai/gateway'
+import { requireSessionUser } from '@/lib/session'
+import { executeAiTask, type AiTaskResult } from '@/lib/ai/gateway'
 import { getOrCreateCase } from '@/lib/cases'
+import { getObjectStore } from '@/lib/storage'
+import {
+  putCaseDocument, MAX_DOCUMENT_BYTES, DocumentTooLargeError, UnsupportedDocumentError,
+  type DocumentType,
+} from '@/lib/case-documents'
 import { serviceFactsSchema, saveServiceFacts, confirmServiceFacts } from '@/lib/facts'
 
-const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
-const MAX_BYTES = 15 * 1024 * 1024
+/**
+ * Failures leave through `?error=<code>` only; the copy lives on the page. A URL
+ * that carries its own message is a place for someone else to put words on
+ * recharacter.us — the same rule lib/auth-errors.ts enforces for the auth pages.
+ */
+
+/**
+ * A refused extraction, named precisely. The two BYOK failures are NOT the same
+ * apology: a 502 means the provider saw the key and rejected it, while a 503
+ * means we could not decrypt what we stored — the provider never saw anything —
+ * and only the second is fixed by re-entering the key.
+ */
+function extractFailureCode(result: Extract<AiTaskResult, { ok: false }>): string {
+  if (result.status === 429) return 'rate_limited'
+  if (result.byokKeyRejected) {
+    return result.status === 503 ? 'byok_key_unreadable' : 'byok_key_rejected'
+  }
+  return 'extract_failed'
+}
 
 /** Upload a separation document, extract facts with AI, save them UNCONFIRMED. */
 export async function uploadAndExtract(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const user = await requireSessionUser('/case/intake')
 
   const file = formData.get('document')
   if (!(file instanceof File) || file.size === 0) {
-    redirect('/case/intake?error=' + encodeURIComponent('Choose a file to upload'))
-  }
-  if (!ALLOWED_TYPES.includes(file.type)) {
-    redirect('/case/intake?error=' + encodeURIComponent('PDF, JPEG, PNG, or WebP only'))
-  }
-  if (file.size > MAX_BYTES) {
-    redirect('/case/intake?error=' + encodeURIComponent('File too large (15 MB max)'))
+    redirect('/case/intake?error=no_file')
   }
 
-  const c = await getOrCreateCase()
-  const bytes = Buffer.from(await file.arrayBuffer())
-
-  // Durable record first (path convention {user}/{case}/{file} — enforced by storage RLS).
-  // file.name is client-controlled: strip anything that isn't a safe key character so
-  // slashes/'..' can't produce odd keys (RLS already pins the {user} prefix regardless).
-  const safeName = file.name.replace(/[^\w.\-]/g, '_')
-  const path = `${user!.id}/${c.id}/${crypto.randomUUID()}-${safeName}`
-  const { error: upErr } = await supabase.storage
-    .from('case-documents')
-    .upload(path, bytes, { contentType: file.type })
-  if (upErr) {
-    redirect('/case/intake?error=' + encodeURIComponent('Upload failed; try again'))
+  // Refuse on the declared size BEFORE reading the body into memory: the store
+  // enforces the same cap, but by then the whole file is already buffered.
+  if (file.size > MAX_DOCUMENT_BYTES) {
+    redirect('/case/intake?error=file_too_large')
   }
 
-  // Extraction is a bounded task; the result only PREFILLS the review form.
-  const result = await executeAiTask(supabase, user!.id, 'extract_service_facts', {
-    documentBase64: bytes.toString('base64'),
-    mediaType: file.type,
-  })
+  const c = await getOrCreateCase(user.id)
+  const bytes = new Uint8Array(await file.arrayBuffer())
+
+  // Durable record first. Size, type and key are all the store's decision: the
+  // multipart Content-Type is client-controlled, so the SNIFFED type is what the
+  // extraction task is told about — never file.type.
+  let stored: { key: string; contentType: DocumentType }
+  try {
+    stored = await putCaseDocument(getObjectStore(), user.id, c.id, file.name, bytes)
+  } catch (err) {
+    if (err instanceof DocumentTooLargeError) redirect('/case/intake?error=file_too_large')
+    if (err instanceof UnsupportedDocumentError) redirect('/case/intake?error=unsupported_file')
+    console.error('case document upload failed:', err instanceof Error ? err.message : err)
+    redirect('/case/intake?error=upload_failed')
+  }
+
+  // Extraction is a bounded task; the result only PREFILLS the review form. The
+  // document is already stored, so every failure below still leaves the veteran
+  // with the manual form — never a 500 over an upload that actually succeeded.
+  let result
+  try {
+    result = await executeAiTask(user.id, 'extract_service_facts', {
+      documentBase64: Buffer.from(bytes).toString('base64'),
+      mediaType: stored.contentType,
+    })
+  } catch (err) {
+    console.error('extract_service_facts failed:', err instanceof Error ? err.message : err)
+    redirect('/case/intake?error=ai_unavailable')
+  }
   if (!result.ok) {
-    redirect('/case/intake?error=' + encodeURIComponent(
-      result.byokKeyRejected
-        ? 'Your AI provider rejected your API key — check it in AI settings, or enter your facts below'
-        : 'Could not read the document automatically — enter your facts below',
-    ))
+    redirect(`/case/intake?error=${extractFailureCode(result)}`)
   }
 
   const d = result.data as {
@@ -71,20 +96,23 @@ export async function uploadAndExtract(formData: FormData) {
     wasGeneralCourtMartial: d.wasGeneralCourtMartial ?? false,
   }
   const parsed = serviceFactsSchema.safeParse(candidate)
-  if (parsed.success) {
-    await saveServiceFacts(c.id, parsed.data, { source: 'extracted' })
-    redirect('/case/intake?extracted=1')
+  if (!parsed.success) redirect('/case/intake?partial=1')
+
+  try {
+    await saveServiceFacts(user.id, c.id, parsed.data, 'extracted')
+  } catch (err) {
+    // The failure message only — never the facts themselves.
+    console.error('service facts save failed:', err instanceof Error ? err.message : err)
+    redirect('/case/intake?error=save_failed')
   }
-  redirect('/case/intake?partial=1')
+  redirect('/case/intake?extracted=1')
 }
 
 /** The human-confirmation gate: the veteran reviews and submits the final facts. */
 export async function confirmFacts(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const user = await requireSessionUser('/case/intake')
 
-  const c = await getOrCreateCase()
+  const c = await getOrCreateCase(user.id)
   const parsed = serviceFactsSchema.safeParse({
     branch: String(formData.get('branch') ?? ''),
     dischargeDate: String(formData.get('dischargeDate') ?? ''),
@@ -92,11 +120,16 @@ export async function confirmFacts(formData: FormData) {
     wasGeneralCourtMartial: formData.get('wasGeneralCourtMartial') === 'on',
   })
   if (!parsed.success) {
-    redirect('/case/intake?error=' + encodeURIComponent('Check the highlighted fields'))
+    redirect('/case/intake?error=invalid_facts')
   }
 
   // Provenance is derived inside the gate: confirming the extracted values
   // untouched keeps source 'extracted'; any edit records 'manual'.
-  await confirmServiceFacts(c.id, parsed.data)
+  try {
+    await confirmServiceFacts(user.id, c.id, parsed.data)
+  } catch (err) {
+    console.error('service facts confirm failed:', err instanceof Error ? err.message : err)
+    redirect('/case/intake?error=save_failed')
+  }
   redirect('/case')
 }

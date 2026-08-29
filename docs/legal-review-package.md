@@ -51,7 +51,7 @@ All six live in `web/src/lib/ai/tasks.ts` (each task's `system` string). The gat
 
 - Charging for AI-assisted document assembly (flat unlock) — any UPL interaction with taking payment for drafting? (Posture: fee is for software, veteran owns/edits/files.)
 - The BYOK-equals-entitlement rule (user's own API key, their provider relationship).
-- Data handling disclosures: mental-health narratives to the AI provider on the managed tier (API traffic not used for training by default) vs. the user's own account on BYOK; retention + delete commitments (`docs/legal-posture.md` §Data sensitivity — one-click delete/export is still a TODO in code).
+- Data handling disclosures: mental-health narratives to the AI provider on the managed tier (API traffic not used for training by default) vs. the user's own account on BYOK; retention + delete commitments (`docs/legal-posture.md` §Data sensitivity — one-click delete/export shipped at `/settings/data`; deletion removes every row, every uploaded object and the identity-provider account, failing closed if any step is unavailable).
 
 ## 9. Sign-off checklist
 

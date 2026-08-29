@@ -1,4 +1,7 @@
-import { createClient } from '@/lib/supabase/server'
+import { and, eq } from 'drizzle-orm'
+import { getDb } from '@/db'
+import { drafts } from '@/db/schema'
+import { assertCaseOwned } from '@/lib/cases'
 
 export type DraftKind = 'personal_statement' | 'cover_letter'
 
@@ -22,37 +25,65 @@ export function regenerateAllowedFor(
   return confirmValue === 'on'
 }
 
-export async function getDraft(caseId: string, kind: DraftKind): Promise<Draft | null> {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from('drafts').select('kind, content, edited, generated_at')
-    .eq('case_id', caseId).eq('kind', kind).maybeSingle()
-  return (data as Draft | null) ?? null
+export async function getDraft(ownerId: string, caseId: string, kind: DraftKind): Promise<Draft | null> {
+  const [row] = await getDb()
+    .select({
+      kind: drafts.kind,
+      content: drafts.content,
+      edited: drafts.edited,
+      generatedAt: drafts.generatedAt,
+    })
+    .from(drafts)
+    .where(and(eq(drafts.caseId, caseId), eq(drafts.ownerId, ownerId), eq(drafts.kind, kind)))
+    .limit(1)
+  if (!row) return null
+  return {
+    // Constrained to the two kinds by drafts_kind_check.
+    kind: row.kind as DraftKind,
+    content: row.content,
+    edited: row.edited,
+    generated_at: row.generatedAt.toISOString(),
+  }
 }
 
 /** Writes a freshly GENERATED draft (resets edited=false). */
-export async function saveGeneratedDraft(caseId: string, kind: DraftKind, content: string): Promise<void> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-  const { error } = await supabase.from('drafts').upsert(
-    {
-      case_id: caseId, owner_id: user.id, kind, content,
-      edited: false, generated_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'case_id,kind' },
-  )
-  if (error) throw error
+export async function saveGeneratedDraft(
+  ownerId: string,
+  caseId: string,
+  kind: DraftKind,
+  content: string,
+): Promise<void> {
+  await assertCaseOwned(ownerId, caseId)
+  const now = new Date()
+  const rows = await getDb()
+    .insert(drafts)
+    .values({ caseId, ownerId, kind, content, edited: false, generatedAt: now })
+    .onConflictDoUpdate({
+      target: [drafts.caseId, drafts.kind],
+      set: { content, edited: false, generatedAt: now, updatedAt: now },
+      setWhere: eq(drafts.ownerId, ownerId),
+    })
+    .returning({ id: drafts.id })
+  if (!rows.length) throw new Error('drafts write affected no rows (owner mismatch)')
 }
 
 /** Writes the veteran's EDITED text (sets edited=true, preserves generated_at). */
-export async function saveEditedDraft(caseId: string, kind: DraftKind, content: string): Promise<void> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-  const { error } = await supabase.from('drafts')
-    .update({ content, edited: true, updated_at: new Date().toISOString() })
-    .eq('case_id', caseId).eq('kind', kind).eq('owner_id', user.id)
-  if (error) throw error
+export async function saveEditedDraft(
+  ownerId: string,
+  caseId: string,
+  kind: DraftKind,
+  content: string,
+): Promise<void> {
+  await assertCaseOwned(ownerId, caseId)
+  const rows = await getDb()
+    .insert(drafts)
+    .values({ caseId, ownerId, kind, content, edited: true })
+    .onConflictDoUpdate({
+      target: [drafts.caseId, drafts.kind],
+      set: { content, edited: true, updatedAt: new Date() },
+      setWhere: eq(drafts.ownerId, ownerId),
+    })
+    .returning({ id: drafts.id })
+  // The veteran's own words. Silently discarding them is the worst outcome here.
+  if (!rows.length) throw new Error('drafts write affected no rows (owner mismatch)')
 }

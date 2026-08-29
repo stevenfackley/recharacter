@@ -7,6 +7,14 @@ describe('task registry', () => {
     expect(getTask('draft_anything_you_want')).toBeUndefined()
   })
 
+  test('inherited object properties are not tasks', () => {
+    // A prototype walk would hand back Object.prototype's members as if they
+    // were registered tasks; the gateway would then call buildPrompt on one.
+    expect(getTask('constructor')).toBeUndefined()
+    expect(getTask('toString')).toBeUndefined()
+    expect(getTask('__proto__')).toBeUndefined()
+  })
+
   test('ping task exists and validates output', () => {
     const ping = getTask('ping')!
     expect(ping.model).toBe('claude-opus-4-8')

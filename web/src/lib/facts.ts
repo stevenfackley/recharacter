@@ -1,5 +1,8 @@
 import { z } from 'zod'
-import { createClient } from '@/lib/supabase/server'
+import { and, eq } from 'drizzle-orm'
+import { getDb } from '@/db'
+import { serviceFacts } from '@/db/schema'
+import { assertCaseOwned } from '@/lib/cases'
 
 export const BRANCHES = ['Army', 'Navy', 'MarineCorps', 'AirForce', 'SpaceForce', 'CoastGuard'] as const
 export const CHARACTERIZATIONS = [
@@ -56,48 +59,72 @@ export type ServiceFactsRow = ServiceFacts & {
   confirmed: boolean
 }
 
-export async function getServiceFacts(caseId: string): Promise<ServiceFactsRow | null> {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from('service_facts').select('*').eq('case_id', caseId).maybeSingle()
-  if (!data) return null
+/**
+ * The text columns are constrained to these unions by check constraints
+ * (service_facts_branch_check and friends); drizzle types them as plain `string`,
+ * so the row shape callers see is narrowed here rather than at every call site.
+ */
+type FactsRow = typeof serviceFacts.$inferSelect
+
+function toServiceFactsRow(row: FactsRow): ServiceFactsRow {
   return {
-    id: data.id,
-    case_id: data.case_id,
-    branch: data.branch,
-    dischargeDate: data.discharge_date,
-    characterization: data.characterization,
-    wasGeneralCourtMartial: data.was_general_court_martial,
-    source: data.source,
-    confirmed: data.confirmed,
+    id: row.id,
+    case_id: row.caseId,
+    branch: row.branch as ServiceFacts['branch'],
+    dischargeDate: row.dischargeDate,
+    characterization: row.characterization as ServiceFacts['characterization'],
+    wasGeneralCourtMartial: row.wasGeneralCourtMartial,
+    source: row.source as 'manual' | 'extracted',
+    confirmed: row.confirmed,
   }
 }
 
+export async function getServiceFacts(ownerId: string, caseId: string): Promise<ServiceFactsRow | null> {
+  const [row] = await getDb()
+    .select()
+    .from(serviceFacts)
+    .where(and(eq(serviceFacts.caseId, caseId), eq(serviceFacts.ownerId, ownerId)))
+    .limit(1)
+  return row ? toServiceFactsRow(row) : null
+}
+
+/**
+ * One writer for both entry points. The case-ownership proof happens here, before
+ * the upsert: without it a caller could attach a facts row to any case id it
+ * guessed. `setWhere` keeps the conflict branch owner-scoped too, so a collision
+ * on someone else's case_id updates nothing instead of overwriting their facts.
+ *
+ * `returning` turns that "updates nothing" from a silent success into a thrown
+ * error. A no-op upsert means the row we were told to write is owned by someone
+ * else, which the caller must never see as a save.
+ */
 async function upsertServiceFacts(
+  ownerId: string,
   caseId: string,
   facts: ServiceFacts,
   source: 'manual' | 'extracted',
   confirmed: boolean,
 ): Promise<void> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { error } = await supabase.from('service_facts').upsert(
-    {
-      case_id: caseId,
-      owner_id: user.id,
-      branch: facts.branch,
-      discharge_date: facts.dischargeDate,
-      characterization: facts.characterization,
-      was_general_court_martial: facts.wasGeneralCourtMartial,
-      source,
-      confirmed,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'case_id' },
-  )
-  if (error) throw error
+  await assertCaseOwned(ownerId, caseId)
+  const columns = {
+    branch: facts.branch,
+    dischargeDate: facts.dischargeDate,
+    characterization: facts.characterization,
+    wasGeneralCourtMartial: facts.wasGeneralCourtMartial,
+    source,
+    confirmed,
+    updatedAt: new Date(),
+  }
+  const rows = await getDb()
+    .insert(serviceFacts)
+    .values({ caseId, ownerId, ...columns })
+    .onConflictDoUpdate({
+      target: serviceFacts.caseId,
+      set: columns,
+      setWhere: eq(serviceFacts.ownerId, ownerId),
+    })
+    .returning({ id: serviceFacts.id })
+  if (!rows.length) throw new Error('service_facts write affected no rows (owner mismatch)')
 }
 
 /**
@@ -108,19 +135,29 @@ async function upsertServiceFacts(
  * keeps unreviewed AI extraction out of the deadline-computation path.
  */
 export async function saveServiceFacts(
+  ownerId: string,
   caseId: string,
   facts: ServiceFacts,
-  opts: { source: 'manual' | 'extracted' },
+  source: 'manual' | 'extracted',
 ): Promise<void> {
-  await upsertServiceFacts(caseId, facts, opts.source, false)
+  await upsertServiceFacts(ownerId, caseId, facts, source, false)
 }
 
 /**
  * The confirmation gate: the veteran reviewed these values and submitted them.
  * Derives provenance itself (never trusts a caller-supplied label) so an
  * untouched extraction stays 'extracted' while any edit becomes 'manual'.
+ *
+ * No assertCaseOwned here: the prior read is already owner-scoped (a stranger
+ * sees null and gets 'manual', which is written to nothing), and the upsert
+ * helper proves ownership itself before touching a row. Asserting twice only
+ * bought an extra round trip.
  */
-export async function confirmServiceFacts(caseId: string, facts: ServiceFacts): Promise<void> {
-  const prior = await getServiceFacts(caseId)
-  await upsertServiceFacts(caseId, facts, resolveSource(prior, facts), true)
+export async function confirmServiceFacts(
+  ownerId: string,
+  caseId: string,
+  facts: ServiceFacts,
+): Promise<void> {
+  const prior = await getServiceFacts(ownerId, caseId)
+  await upsertServiceFacts(ownerId, caseId, facts, resolveSource(prior, facts), true)
 }

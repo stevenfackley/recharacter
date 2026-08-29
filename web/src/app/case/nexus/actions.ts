@@ -1,8 +1,7 @@
 'use server'
 
 import { refresh } from 'next/cache'
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { getSessionUser, requireSessionUser } from '@/lib/session'
 import { executeAiTask } from '@/lib/ai/gateway'
 import { getOrCreateCase } from '@/lib/cases'
 import { KURTA_QUESTIONS, saveNexusAnswer } from '@/lib/nexus'
@@ -20,11 +19,12 @@ export type SaveState = { saved: boolean; error: string | null }
  * redirecting — a full-page transition here discards unsaved text in the other
  * three textareas (issue #9). refresh() re-renders the server components (the
  * answered-count) while client textarea state survives.
+ *
+ * Failures are inline copy rather than an `?error=` code for the same reason:
+ * this action deliberately never reaches a URL.
  */
 export async function saveAnswer(_prev: SaveState, formData: FormData): Promise<SaveState> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const user = await requireSessionUser('/case/nexus')
 
   const key = String(formData.get('questionKey') ?? '')
   const question = KURTA_QUESTIONS.find((q) => q.key === key)
@@ -35,13 +35,33 @@ export async function saveAnswer(_prev: SaveState, formData: FormData): Promise<
     return { saved: false, error: 'Answer too long (6000 characters max)' }
   }
 
-  const c = await getOrCreateCase()
-  await saveNexusAnswer(c.id, question.column, text)
+  const c = await getOrCreateCase(user.id)
+  try {
+    await saveNexusAnswer(user.id, c.id, question.key, text)
+  } catch (err) {
+    // The failure message only — the answer itself never goes to a log.
+    console.error('nexus answer save failed:', err instanceof Error ? err.message : err)
+    return { saved: false, error: 'Could not save — try again shortly' }
+  }
   refresh()
   return { saved: true, error: null }
 }
 
 export type ShapeState = { shapedAnswer: string | null; gaps: string | null }
+
+/**
+ * Why a refused shaping returns state instead of redirecting: the four answers
+ * live in four client textareas, and a navigation away from this page throws
+ * away every unsaved word in the other three (issue #9). A veteran who presses
+ * "Help me phrase this" without the unlock gets told so in place, with the
+ * upgrade page named, and their typing survives.
+ */
+const PAYMENT_REQUIRED_NOTE =
+  'Phrasing help needs the case unlock or your own API key — see /case/upgrade. ' +
+  'Your answers here are untouched.'
+
+const AI_UNAVAILABLE_NOTE =
+  'Phrasing help is unavailable right now. Your answers here are untouched.'
 
 /**
  * Optional AI phrasing help. Returns the PROPOSAL as the action result — rendered
@@ -53,8 +73,7 @@ export type ShapeState = { shapedAnswer: string | null; gaps: string | null }
  * a client-supplied prompt is never trusted.
  */
 export async function shapeAnswer(_prev: ShapeState, formData: FormData): Promise<ShapeState> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSessionUser()
   if (!user) return { shapedAnswer: null, gaps: null }
 
   const key = String(formData.get('questionKey') ?? '')
@@ -64,14 +83,22 @@ export async function shapeAnswer(_prev: ShapeState, formData: FormData): Promis
   const rawNarrative = String(formData.get('text') ?? '').trim()
   if (!rawNarrative) return { shapedAnswer: null, gaps: null }
 
-  const result = await executeAiTask(supabase, user.id, 'shape_nexus_answer', {
-    questionKey: question.key,
-    questionPrompt: question.prompt,
-    rawNarrative,
-  })
+  let result
+  try {
+    result = await executeAiTask(user.id, 'shape_nexus_answer', {
+      questionKey: question.key,
+      questionPrompt: question.prompt,
+      rawNarrative,
+    })
+  } catch (err) {
+    // The gateway can reject outright (an attempt it could not record). Inline
+    // state, never a 500 that would take the other three answers with it.
+    console.error('shape_nexus_answer failed:', err instanceof Error ? err.message : err)
+    return { shapedAnswer: null, gaps: AI_UNAVAILABLE_NOTE }
+  }
   if (!result.ok) {
-    if (result.status === 402) redirect('/case/upgrade')
-    return { shapedAnswer: null, gaps: null }
+    if (result.status === 402) return { shapedAnswer: null, gaps: PAYMENT_REQUIRED_NOTE }
+    return { shapedAnswer: null, gaps: AI_UNAVAILABLE_NOTE }
   }
 
   const d = result.data as { shapedAnswer: string; gaps: string }

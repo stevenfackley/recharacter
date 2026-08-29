@@ -1,4 +1,7 @@
-import { createClient } from '@/lib/supabase/server'
+import { and, eq } from 'drizzle-orm'
+import { getDb } from '@/db'
+import { nexusAnswers } from '@/db/schema'
+import { assertCaseOwned } from '@/lib/cases'
 
 export type NexusAnswers = {
   q1_condition: string
@@ -64,36 +67,52 @@ export function answersComplete(a: NexusAnswers): boolean {
     .every((t) => t.trim().length > 0)
 }
 
-export async function getNexusAnswers(caseId: string): Promise<NexusAnswers | null> {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from('nexus_answers').select('*').eq('case_id', caseId).maybeSingle()
-  if (!data) return null
+export async function getNexusAnswers(ownerId: string, caseId: string): Promise<NexusAnswers | null> {
+  const [row] = await getDb()
+    .select()
+    .from(nexusAnswers)
+    .where(and(eq(nexusAnswers.caseId, caseId), eq(nexusAnswers.ownerId, ownerId)))
+    .limit(1)
+  if (!row) return null
   return {
-    q1_condition: data.q1_condition,
-    q2_during_service: data.q2_during_service,
-    q3_mitigation: data.q3_mitigation,
-    q4_outweigh: data.q4_outweigh,
+    q1_condition: row.q1Condition,
+    q2_during_service: row.q2DuringService,
+    q3_mitigation: row.q3Mitigation,
+    q4_outweigh: row.q4Outweigh,
   }
 }
 
+/** The four answers are stored one column each — the question key picks the column. */
+const ANSWER_COLUMNS = {
+  q1: 'q1Condition',
+  q2: 'q2DuringService',
+  q3: 'q3Mitigation',
+  q4: 'q4Outweigh',
+} as const satisfies Record<KurtaKey, keyof typeof nexusAnswers.$inferInsert>
+
+/**
+ * Saves ONE answer. The `set` clause names only that answer's column: a
+ * whole-object set would write the three untouched columns back as their
+ * insert defaults (empty strings) and silently wipe the other answers.
+ */
 export async function saveNexusAnswer(
+  ownerId: string,
   caseId: string,
-  column: keyof NexusAnswers,
+  key: KurtaKey,
   text: string,
 ): Promise<void> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { error } = await supabase.from('nexus_answers').upsert(
-    {
-      case_id: caseId,
-      owner_id: user.id,
-      [column]: text,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'case_id' },
-  )
-  if (error) throw error
+  await assertCaseOwned(ownerId, caseId)
+  const column = ANSWER_COLUMNS[key]
+  const rows = await getDb()
+    .insert(nexusAnswers)
+    .values({ caseId, ownerId, [column]: text })
+    .onConflictDoUpdate({
+      target: nexusAnswers.caseId,
+      set: { [column]: text, updatedAt: new Date() },
+      setWhere: eq(nexusAnswers.ownerId, ownerId),
+    })
+    .returning({ id: nexusAnswers.id })
+  // A no-op conflict branch means the row belongs to another owner; losing an
+  // answer the veteran just typed must never pass for a save.
+  if (!rows.length) throw new Error('nexus_answers write affected no rows (owner mismatch)')
 }

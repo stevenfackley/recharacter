@@ -1,11 +1,12 @@
 'use server'
 
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import { executeAiTask } from '@/lib/ai/gateway'
+import { requireSessionUser } from '@/lib/session'
+import { executeAiTask, type AiTaskResult } from '@/lib/ai/gateway'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
 import { getCaseContext } from '@/lib/context'
+import { getEvidenceStatuses } from '@/lib/evidence-items'
 import { getNexusAnswers, answersComplete } from '@/lib/nexus'
 import { EVIDENCE_CATALOG, type EvidenceType } from '@/lib/evidence'
 import { getDraft, regenerateAllowedFor, saveGeneratedDraft, saveEditedDraft, type DraftKind } from '@/lib/drafts'
@@ -24,36 +25,70 @@ const CONDITION_SUMMARY_LABELS: Record<string, string> = {
 }
 
 /** False only when an existing EDITED draft would be silently clobbered without confirm=on. */
-async function regenerateAllowed(caseId: string, kind: DraftKind, formData: FormData): Promise<boolean> {
-  const existing = await getDraft(caseId, kind)
+async function regenerateAllowed(
+  ownerId: string, caseId: string, kind: DraftKind, formData: FormData,
+): Promise<boolean> {
+  const existing = await getDraft(ownerId, caseId, kind)
   return regenerateAllowedFor(existing, formData.get('confirm'))
+}
+
+/**
+ * One mapping from a refused AI task to the page's error CODE.
+ *
+ * The two BYOK failures are deliberately separate codes. A 502 means the
+ * provider saw the key and rejected it; a 503 means we could not decrypt what we
+ * stored, so the provider never saw anything at all. Both are fixed by
+ * re-entering the key and neither is fixed by retrying, but telling a veteran
+ * that Anthropic rejected a key Anthropic never received is simply false.
+ */
+function generateFailureCode(result: Extract<AiTaskResult, { ok: false }>): string {
+  if (result.byokKeyRejected) {
+    return result.status === 503 ? 'byok_key_unreadable' : 'byok_key_rejected'
+  }
+  if (result.status === 429) return 'rate_limited'
+  if (result.status === 503) return 'ai_unavailable'
+  return 'generate_failed'
+}
+
+/**
+ * The gateway REJECTS (rather than resolving a refusal) when it cannot even
+ * record the attempt. Every action that calls it owns that at its own boundary —
+ * an unhandled rejection here is a blank 500 on a page the veteran was mid-way
+ * through.
+ */
+async function runTask(
+  ownerId: string, taskName: string, input: unknown,
+): Promise<AiTaskResult> {
+  try {
+    return await executeAiTask(ownerId, taskName, input)
+  } catch (err) {
+    console.error(`ai task ${taskName} failed:`, err instanceof Error ? err.message : err)
+    return { ok: false, status: 503, error: 'AI unavailable' }
+  }
 }
 
 /** Assembles the personal statement exclusively from the four approved Kurta answers. */
 export async function generateStatement(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const user = await requireSessionUser('/case/draft')
 
-  const c = await getOrCreateCase()
-  const answers = await getNexusAnswers(c.id)
+  const c = await getOrCreateCase(user.id)
+  const answers = await getNexusAnswers(user.id, c.id)
   if (!answers || !answersComplete(answers)) redirect('/case/nexus')
 
-  const facts = await getServiceFacts(c.id)
+  const facts = await getServiceFacts(user.id, c.id)
   if (!facts || !facts.confirmed) redirect('/case/intake')
 
-  if (!(await regenerateAllowed(c.id, 'personal_statement', formData))) {
+  if (!(await regenerateAllowed(user.id, c.id, 'personal_statement', formData))) {
     redirect('/case/draft?confirm=statement')
   }
 
-  const { data: itemRows } = await supabase
-    .from('evidence_items').select('item_type, status').eq('case_id', c.id)
-  const collectedEvidence = (itemRows ?? [])
-    .filter((r) => r.status === 'collected')
-    .map((r) => EVIDENCE_CATALOG[r.item_type as EvidenceType]?.label)
+  const statuses = await getEvidenceStatuses(user.id, c.id)
+  const collectedEvidence = Object.entries(statuses)
+    .filter(([, status]) => status === 'collected')
+    .map(([itemType]) => EVIDENCE_CATALOG[itemType as EvidenceType]?.label)
     .filter((label): label is string => Boolean(label))
 
-  const result = await executeAiTask(supabase, user.id, 'draft_statement', {
+  const result = await runTask(user.id, 'draft_statement', {
     answers,
     branch: facts.branch,
     characterization: facts.characterization,
@@ -62,34 +97,32 @@ export async function generateStatement(formData: FormData) {
   })
   if (!result.ok) {
     if (result.status === 402) redirect('/case/upgrade')
-    redirect('/case/draft?error=' + encodeURIComponent(
-      result.status === 503
-        ? 'Drafting needs an AI key — you can also write your statement directly below'
-        : result.byokKeyRejected
-          ? 'Your AI provider rejected your API key — check it in AI settings, then generate again'
-          : 'Could not generate a statement right now — try again shortly',
-    ))
+    redirect(`/case/draft?error=${generateFailureCode(result)}`)
   }
 
   const { statement } = result.data as { statement: string }
-  await saveGeneratedDraft(c.id, 'personal_statement', statement)
+  try {
+    await saveGeneratedDraft(user.id, c.id, 'personal_statement', statement)
+  } catch (err) {
+    // The failure message only — draft text never goes to a log.
+    console.error('statement save failed:', err instanceof Error ? err.message : err)
+    redirect('/case/draft?error=save_failed')
+  }
   redirect('/case/draft')
 }
 
 /** Assembles the cover letter — needs confirmed facts, case context, and a reachable routing service. */
 export async function generateCoverLetter(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const user = await requireSessionUser('/case/draft')
 
-  const c = await getOrCreateCase()
-  const facts = await getServiceFacts(c.id)
+  const c = await getOrCreateCase(user.id)
+  const facts = await getServiceFacts(user.id, c.id)
   if (!facts || !facts.confirmed) redirect('/case/intake')
 
-  const ctx = await getCaseContext(c.id)
+  const ctx = await getCaseContext(user.id, c.id)
   if (!ctx) redirect('/case/evidence')
 
-  if (!(await regenerateAllowed(c.id, 'cover_letter', formData))) {
+  if (!(await regenerateAllowed(user.id, c.id, 'cover_letter', formData))) {
     redirect('/case/draft?confirm=cover_letter')
   }
 
@@ -102,15 +135,13 @@ export async function generateCoverLetter(formData: FormData) {
       wasGeneralCourtMartial: facts.wasGeneralCourtMartial,
     })
   } catch {
-    redirect('/case/draft?error=' + encodeURIComponent(
-      'The routing service is unavailable right now — try again shortly',
-    ))
+    redirect('/case/draft?error=routing_unavailable')
   }
 
   const conditionSummary =
     `${CONDITION_SUMMARY_LABELS[ctx.conditionCategory] ?? 'a mental-health condition'} arising during service`
 
-  const result = await executeAiTask(supabase, user.id, 'draft_cover_letter', {
+  const result = await runTask(user.id, 'draft_cover_letter', {
     boardName: routing.boardName,
     form: routing.recommendedForm,
     branch: facts.branch,
@@ -119,25 +150,22 @@ export async function generateCoverLetter(formData: FormData) {
   })
   if (!result.ok) {
     if (result.status === 402) redirect('/case/upgrade')
-    redirect('/case/draft?error=' + encodeURIComponent(
-      result.status === 503
-        ? 'Drafting needs an AI key — you can write your cover letter directly instead'
-        : result.byokKeyRejected
-          ? 'Your AI provider rejected your API key — check it in AI settings, then generate again'
-          : 'Could not generate a cover letter right now — try again shortly',
-    ))
+    redirect(`/case/draft?error=${generateFailureCode(result)}`)
   }
 
   const { letter } = result.data as { letter: string }
-  await saveGeneratedDraft(c.id, 'cover_letter', letter)
+  try {
+    await saveGeneratedDraft(user.id, c.id, 'cover_letter', letter)
+  } catch (err) {
+    console.error('cover letter save failed:', err instanceof Error ? err.message : err)
+    redirect('/case/draft?error=save_failed')
+  }
   redirect('/case/draft')
 }
 
 /** The veteran's own edits — always allowed, regardless of AI availability. */
 export async function saveDraft(formData: FormData) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  const user = await requireSessionUser('/case/draft')
 
   const kindRaw = String(formData.get('kind') ?? '')
   if (!DRAFT_KINDS.includes(kindRaw)) redirect('/case/draft')
@@ -145,10 +173,15 @@ export async function saveDraft(formData: FormData) {
 
   const content = String(formData.get('content') ?? '')
   if (content.length > MAX_DRAFT_LENGTH) {
-    redirect('/case/draft?error=' + encodeURIComponent('Draft too long (50,000 characters max)'))
+    redirect('/case/draft?error=draft_too_long')
   }
 
-  const c = await getOrCreateCase()
-  await saveEditedDraft(c.id, kind, content)
+  const c = await getOrCreateCase(user.id)
+  try {
+    await saveEditedDraft(user.id, c.id, kind, content)
+  } catch (err) {
+    console.error('draft save failed:', err instanceof Error ? err.message : err)
+    redirect('/case/draft?error=save_failed')
+  }
   redirect('/case/draft')
 }

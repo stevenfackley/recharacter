@@ -1,22 +1,55 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { count, eq, sql } from 'drizzle-orm'
+import { getDb } from '@/db'
+import { aiAttempts, aiUsage } from '@/db/schema'
+
+/**
+ * Records one ATTEMPTED call, before the guardrails read the counter.
+ *
+ * Deliberately does NOT swallow, unlike recordUsage: an attempt that cannot be
+ * written is an attempt that has not been counted, and running the model anyway
+ * would hand a caller an uncounted request every time the insert fails. Nothing
+ * has been spent yet at this point, so failing closed costs the veteran only a
+ * retry.
+ */
+export async function recordAttempt(ownerId: string, task: string): Promise<void> {
+  await getDb().insert(aiAttempts).values({ ownerId, task })
+}
 
 export async function recordUsage(
-  supabase: SupabaseClient,
-  row: {
-    owner_id: string
-    task: string
-    model: string
-    byok: boolean
-    input_tokens: number
-    output_tokens: number
-  },
+  ownerId: string,
+  u: { task: string; model: string; byok: boolean; inputTokens: number; outputTokens: number },
 ): Promise<void> {
-  // Metering failures must not eat a successful AI response — swallow BOTH the
-  // resolved-{error} shape and a thrown rejection; log and continue.
+  // Metering failures must not eat a successful AI response: the tokens are
+  // already spent and the veteran already has their answer. Log and continue —
+  // the only writer in this module that is allowed to swallow.
   try {
-    const { error } = await supabase.from('ai_usage').insert(row)
-    if (error) console.error('ai_usage insert failed', error)
+    await getDb().insert(aiUsage).values({
+      ownerId,
+      task: u.task,
+      model: u.model,
+      byok: u.byok,
+      inputTokens: u.inputTokens,
+      outputTokens: u.outputTokens,
+    })
   } catch (err) {
-    console.error('ai_usage insert threw', err)
+    console.error('ai_usage insert failed', err)
   }
+}
+
+/** Lifetime totals for one owner — summed in SQL, never by paging rows into JS. */
+export async function usageTotals(
+  ownerId: string,
+): Promise<{ inputTokens: number; outputTokens: number; calls: number }> {
+  const [row] = await getDb()
+    .select({
+      // bigint, not int: a lifetime sum overflows int4 long before it stops
+      // being interesting, and 22003 here would hide the number from the veteran.
+      inputTokens: sql<string>`coalesce(sum(${aiUsage.inputTokens}), 0)::bigint`,
+      outputTokens: sql<string>`coalesce(sum(${aiUsage.outputTokens}), 0)::bigint`,
+      calls: count(),
+    })
+    .from(aiUsage)
+    .where(eq(aiUsage.ownerId, ownerId))
+  if (!row) return { inputTokens: 0, outputTokens: 0, calls: 0 }
+  return { inputTokens: Number(row.inputTokens), outputTokens: Number(row.outputTokens), calls: row.calls }
 }

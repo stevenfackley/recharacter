@@ -65,12 +65,50 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  migrate:
+    name: Migrate qavren-db (recharacter schema)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [build-web, build-routing]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        working-directory: web
+        run: npm ci
+      - name: Apply migrations over the session pooler
+        working-directory: web
+        env:
+          # qavren-db SESSION (:5432) URL for role `recharacter`. The runner
+          # has no IPv6, so this must be the pooler hostname form, never
+          # `db.<ref>.supabase.co`.
+          DATABASE_URL_MIGRATE: ${{ secrets.DATABASE_URL_MIGRATE }}
+        run: |
+          test -n "$DATABASE_URL_MIGRATE" || { echo "DATABASE_URL_MIGRATE secret is not set — refusing to deploy against an unmigrated schema"; exit 1; }
+          npm run db:migrate
+
   deploy:
     name: Deploy to Qavren-Web-Server
-    needs: [build-web, build-routing]
+    needs: [build-web, build-routing, migrate]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - uses: actions/checkout@v7
+      - name: Sync the compose file to the box
+        # The box runs whatever docker-compose.yml it has; without this step the
+        # SHA pin, the healthchecks and the rollback below would be inert there.
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          source: deploy/docker-compose.yml
+          target: ~/recharacter
+          strip_components: 1
       - name: Pull and restart the stack over SSH
         uses: appleboy/ssh-action@v1
         with:
@@ -84,27 +122,30 @@ jobs:
             # box never needs a long-lived PAT.
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             cd ~/recharacter
-            # Deploy owns the deploy-managed lines of the box .env: the
-            # service-role key lives in Actions secret custody and is synced
-            # here every deploy (hand-edited .env is how it went missing —
-            # found absent in prod 2026-07-11, deletion failing closed).
-            # Empty secret = leave .env untouched.
-            if [ -n "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" ]; then
-              if grep -q '^SUPABASE_SERVICE_ROLE_KEY=' .env 2>/dev/null; then
-                sed -i "s|^SUPABASE_SERVICE_ROLE_KEY=.*|SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}|" .env
-              else
-                printf '\nSUPABASE_SERVICE_ROLE_KEY=%s\n' "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> .env
-              fi
-            fi
             # Pin compose to this deploy's images by SHA (immutable, unlike
-            # :latest) — same upsert idiom as the service-role key above, so
-            # `IMAGE_TAG=<sha> docker compose up -d` can roll back on the box.
+            # :latest) so `IMAGE_TAG=<sha> docker compose up -d` can roll
+            # back on the box.
             if grep -q '^IMAGE_TAG=' .env 2>/dev/null; then
               sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${{ github.sha }}|" .env
             else
               printf '\nIMAGE_TAG=%s\n' "${{ github.sha }}" >> .env
             fi
             docker compose pull
-            docker compose up -d
+            # --wait blocks until the web/routing healthchecks pass; with set -e a
+            # failure aborts BEFORE the prune, so the previous image stays on the
+            # box for `IMAGE_TAG=<previous sha> docker compose up -d`.
+            docker compose up -d --wait --wait-timeout 180
             docker image prune -f
             docker logout ghcr.io
+      - name: Smoke the public site
+        # /api/health is deliberately auth- and DB-free, so a broken AUTH_SECRET
+        # or DATABASE_URL still passes the compose healthcheck. A page that goes
+        # through the proxy and Auth.js is the real signal.
+        run: |
+          code=000
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://recharacter.us/login || echo 000)
+            [ "$code" = "200" ] && { echo "login page 200"; exit 0; }
+            sleep 10
+          done
+          echo "recharacter.us/login did not return 200 after deploy (last: $code)"; exit 1

@@ -11,10 +11,12 @@ export type ResolvedKey = { apiKey: string; byok: boolean }
 export function resolveApiKey(opts: {
   encryptedByokKey: string | null
   kek: string
+  /** Additional authenticated data the ciphertext was bound to — the owner id. */
+  aad: string
   managedKey: string | undefined
 }): ResolvedKey {
   if (opts.encryptedByokKey) {
-    return { apiKey: decryptSecret(opts.encryptedByokKey, opts.kek), byok: true }
+    return { apiKey: decryptSecret(opts.encryptedByokKey, opts.kek, opts.aad), byok: true }
   }
   if (opts.managedKey) return { apiKey: opts.managedKey, byok: false }
   throw new Error('No AI key available: user has no BYOK credential and no managed key is configured')

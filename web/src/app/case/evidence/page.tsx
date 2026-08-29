@@ -1,17 +1,21 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { requireSessionUser } from '@/lib/session'
 import { getOrCreateCase } from '@/lib/cases'
 import { getCaseContext } from '@/lib/context'
-import { createClient } from '@/lib/supabase/server'
-import {
-  recommendEvidence, scoreCase,
-  type EvidenceStatusMap, type EvidenceType,
-} from '@/lib/evidence'
+import { getEvidenceStatuses } from '@/lib/evidence-items'
+import { recommendEvidence, scoreCase } from '@/lib/evidence'
 import { evidenceStatusLabel } from '@/lib/labels'
 import { saveContext, setItemStatus } from './actions'
 import { CoachingSection } from './coaching'
 
 export const metadata: Metadata = { title: 'Your evidence checklist' }
+
+/** Closed set: only these codes resolve to copy, never `params.error` itself. */
+const ERRORS = {
+  save_failed: 'Could not save that — try again shortly.',
+  invalid_context: 'Check the form.',
+} as const
 
 const CONDITION_OPTIONS = [
   { value: 'ptsd', label: 'PTSD' },
@@ -30,14 +34,17 @@ export default async function EvidencePage({
   searchParams: Promise<Record<string, string | undefined>>
 }) {
   const params = await searchParams
-  const c = await getOrCreateCase()
-  const ctx = await getCaseContext(c.id)
+  const user = await requireSessionUser('/case/evidence')
+  const c = await getOrCreateCase(user.id)
+  const ctx = await getCaseContext(user.id, c.id)
+
+  const error = ERRORS[params.error as keyof typeof ERRORS] ?? null
 
   if (!ctx) {
     return (
       <main>
         <h1>Tell us about your case</h1>
-        {params.error && <p role="alert">{params.error}</p>}
+        {error && <p role="alert">{error}</p>}
         <p>Four quick questions personalize the evidence checklist below.</p>
 
         <form action={saveContext}>
@@ -68,12 +75,7 @@ export default async function EvidencePage({
     )
   }
 
-  const supabase = await createClient()
-  const { data: itemRows } = await supabase
-    .from('evidence_items').select('item_type, status').eq('case_id', c.id)
-  const statuses: EvidenceStatusMap = Object.fromEntries(
-    (itemRows ?? []).map((r) => [r.item_type as EvidenceType, r.status]),
-  )
+  const statuses = await getEvidenceStatuses(user.id, c.id)
 
   const recommended = recommendEvidence(ctx)
   const result = scoreCase(recommended, statuses)
@@ -81,7 +83,7 @@ export default async function EvidencePage({
   return (
     <main>
       <h1>Your evidence checklist</h1>
-      {params.error && <p role="alert">{params.error}</p>}
+      {error && <p role="alert">{error}</p>}
 
       <p><strong>{result.score}/100</strong> — {result.band}</p>
       {result.topGap && (

@@ -1,20 +1,37 @@
 import Link from 'next/link'
 import type { Metadata } from 'next'
+import { requireSessionUser } from '@/lib/session'
 import { deleteAccount } from './actions'
 
 export const metadata: Metadata = { title: 'Your data' }
+
+/**
+ * The closed set of failures this page will name. `?error=` is rendered back
+ * onto recharacter.us, and attacker-chosen copy on a page whose users are
+ * already being asked for stigmatizing records is a phishing surface — so only
+ * these codes resolve to words, never `error` itself (see lib/auth-errors.ts).
+ */
+const ERRORS = {
+  confirm_phrase: 'Tick the confirmation box to delete your account.',
+  deletion_unavailable: 'Account deletion is temporarily unavailable. Nothing was removed.',
+  deletion_failed: 'Deletion did not complete. Nothing was removed — try again shortly.',
+} as const
 
 export default async function DataSettingsPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string }>
 }) {
+  // The proxy is a redirect convenience, not the gate: this page names the two
+  // controls that empty an account, so it proves the session itself.
+  await requireSessionUser('/settings/data')
   const { error } = await searchParams
+  const message = ERRORS[error as keyof typeof ERRORS] ?? null
 
   return (
     <main>
       <h1>Your data</h1>
-      {error && <p role="alert">{error}</p>}
+      {message && <p role="alert">{message}</p>}
       <p>
         Everything ReCharacter holds exists for one purpose: assembling your
         petition. Both controls below cover all of it — your case, service
@@ -25,9 +42,9 @@ export default async function DataSettingsPage({
         <h2>Export everything</h2>
         <p>
           One file, machine-readable JSON, containing every record tied to your
-          account. Your uploaded documents are listed by name — the files
-          themselves are the copies you uploaded and remain downloadable from
-          your case until you delete them.
+          account. Documents you upload are kept only to run extraction on them;
+          the export lists their file names, and deleting your account removes
+          the files themselves.
         </p>
         <p>
           <a href="/api/account/export" download>Download my data</a>
