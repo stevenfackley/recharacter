@@ -75,6 +75,26 @@ describe('drafts', () => {
     })
   })
 
+  it("the veteran's edit preserves generated_at", async () => {
+    // generated_at is when the MACHINE wrote the text. An edit is the veteran's
+    // own revision of that text, not a new generation, so the stamp must survive.
+    const { alice, caseId } = await twoOwners()
+    await saveGeneratedDraft(alice, caseId, 'personal_statement', 'machine text')
+    const before = await getDraft(alice, caseId, 'personal_statement')
+    await new Promise((r) => setTimeout(r, 20))
+    await saveEditedDraft(alice, caseId, 'personal_statement', 'my own words')
+    const after = await getDraft(alice, caseId, 'personal_statement')
+    expect(before?.generated_at).toEqual(expect.any(String))
+    expect(after?.generated_at).toBe(before?.generated_at)
+    expect(after).toMatchObject({ content: 'my own words', edited: true })
+  })
+
+  it('reads null for a kind that was never generated, even when the other kind exists', async () => {
+    const { alice, caseId } = await twoOwners()
+    await saveGeneratedDraft(alice, caseId, 'personal_statement', 'statement')
+    expect(await getDraft(alice, caseId, 'cover_letter')).toBeNull()
+  })
+
   it('regenerating resets edited to false', async () => {
     const { alice, caseId } = await twoOwners()
     await saveGeneratedDraft(alice, caseId, 'cover_letter', 'v1')
