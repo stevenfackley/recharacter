@@ -147,7 +147,9 @@ Import-Module (Join-Path $QavrenDbRepo 'tools/QavrenDb.psm1') -Force
 Ok 'qavren-db module + prod target loaded'
 
 Step "Preflight: R2 token can list/put/get/delete in $R2Bucket"
-$script:R2Secret = Read-Host -Prompt 'R2_SECRET_ACCESS_KEY (input hidden)' -MaskInput
+# Prompted (masked) so it never lands in shell history; R2_SECRET_ACCESS_KEY in
+# the environment is the non-interactive path.
+$script:R2Secret = if ($env:R2_SECRET_ACCESS_KEY) { $env:R2_SECRET_ACCESS_KEY } else { Read-Host -Prompt 'R2_SECRET_ACCESS_KEY (input hidden)' -MaskInput }
 if ([string]::IsNullOrWhiteSpace($script:R2Secret)) { Fail 'empty R2 secret' }
 $probeKey = ".cutover-probe/$([guid]::NewGuid())"
 $probeFile = New-TemporaryFile
