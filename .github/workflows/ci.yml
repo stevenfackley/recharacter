@@ -169,7 +169,7 @@ jobs:
       - name: Public e2e suite
         working-directory: web
         run: npx playwright test e2e/public.spec.ts
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report-ci
