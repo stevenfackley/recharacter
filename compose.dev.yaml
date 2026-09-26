@@ -16,23 +16,21 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-  minio:
+  rustfs:
     # Host ports 9100/9101: 9000 is Keycloak's management port when the local
     # qavren-auth stack is up on the same machine.
-    # Pinned, not :latest — MinIO ships breaking changes in dated releases and a
-    # floating tag makes the dev stack drift from CI.
-    # quay.io, not Docker Hub: Docker Hub no longer serves the minio/minio
-    # repository at all ("pull access denied ... repository does not exist",
-    # on every tag). quay.io is MinIO's own registry and serves the identical
-    # image. Do not put the Docker Hub name back.
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-    command: server /data --console-address ":9001"
+    # RustFS, not MinIO: MinIO stopped publishing public images (Docker Hub and
+    # quay.io both 401 anonymous pulls since 2026-09). S3-compatible drop-in;
+    # pinned so the dev stack matches CI. Credentials keep the old values so
+    # existing .env files still work.
+    image: rustfs/rustfs:1.0.0
     environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: minio12345
+      RUSTFS_ACCESS_KEY: minio
+      RUSTFS_SECRET_KEY: minio12345
+      RUSTFS_CONSOLE_ENABLE: "true"
     ports: ["9100:9000", "9101:9001"]
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
       interval: 5s
       timeout: 3s
       retries: 10
