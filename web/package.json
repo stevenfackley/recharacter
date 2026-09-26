@@ -52,9 +52,6 @@
     "vitest": "^5.0.1"
   },
   "overrides": {
-    "@esbuild-kit/core-utils": {
-      "esbuild": "^0.25.0"
-    },
     "minimatch@3.1.5": {
       "brace-expansion": "^1.1.16"
     },
