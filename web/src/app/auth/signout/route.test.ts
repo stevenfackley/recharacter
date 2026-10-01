@@ -82,13 +82,42 @@ test('the jwt is read from the request cookie, never from the session endpoint',
   )
 })
 
-test('over https the secure cookie prefix is used', async () => {
+test('a __Secure- session cookie selects the secure cookie name', async () => {
   process.env.APP_BASE_URL = 'https://recharacter.us'
   resetEnvForTests()
 
-  await POST(new NextRequest('https://recharacter.us/auth/signout', { method: 'POST' }))
+  await POST(
+    new NextRequest('https://recharacter.us/auth/signout', {
+      method: 'POST',
+      headers: { cookie: '__Secure-authjs.session-token=abc' },
+    }),
+  )
 
   expect(getToken).toHaveBeenCalledWith(expect.objectContaining({ secureCookie: true }))
+})
+
+test('the cookie name follows the cookie the browser sent, not APP_BASE_URL', async () => {
+  // https base URL, but Auth.js issued the plain name (e.g. a proxy rewrote the proto at sign-in).
+  process.env.APP_BASE_URL = 'https://recharacter.us'
+  resetEnvForTests()
+  await POST(
+    new NextRequest('https://recharacter.us/auth/signout', {
+      method: 'POST',
+      headers: { cookie: 'authjs.session-token=abc' },
+    }),
+  )
+  expect(getToken).toHaveBeenLastCalledWith(expect.objectContaining({ secureCookie: false }))
+
+  // http base URL, but the browser carries the __Secure- (chunked) name.
+  process.env.APP_BASE_URL = 'http://localhost:3000'
+  resetEnvForTests()
+  await POST(
+    new NextRequest('http://localhost:3000/auth/signout', {
+      method: 'POST',
+      headers: { cookie: '__Secure-authjs.session-token.0=a; __Secure-authjs.session-token.1=b' },
+    }),
+  )
+  expect(getToken).toHaveBeenLastCalledWith(expect.objectContaining({ secureCookie: true }))
 })
 
 test('a post with no Origin header (form navigation) is allowed', async () => {

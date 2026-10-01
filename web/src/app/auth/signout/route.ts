@@ -31,10 +31,18 @@ export async function POST(req: NextRequest) {
   // Read the JWT straight off the request cookie rather than through `auth()`:
   // the ID token is never placed on the session object, because Auth.js serves
   // that object verbatim at GET /api/auth/session. `getToken` derives the cookie
-  // name (`__Secure-authjs.session-token` over HTTPS, `authjs.session-token`
-  // otherwise) from `secureCookie`, and reassembles chunked cookies. It must run
-  // before signOut clears the session.
-  const secure = new URL(appBaseUrl).protocol === 'https:'
+  // name (`__Secure-authjs.session-token` or `authjs.session-token`) from
+  // `secureCookie`, and reassembles chunked cookies. It must run before signOut
+  // clears the session.
+  //
+  // `secureCookie` follows the cookie the browser actually sent, not
+  // APP_BASE_URL: Auth.js picks the name from AUTH_URL / X-Forwarded-Proto at
+  // sign-in, and if that ever drifts from APP_BASE_URL (a proxy rewriting the
+  // proto, AUTH_URL unset) getToken would look under the wrong name, find
+  // nothing, drop the id_token_hint, and leave the realm session alive.
+  const secure = req.cookies
+    .getAll()
+    .some((c) => isSessionCookieName(c.name) && c.name.startsWith('__Secure-'))
   const jwt = await getToken({ req, secret: process.env.AUTH_SECRET ?? '', secureCookie: secure })
   const idToken = typeof jwt?.idToken === 'string' ? jwt.idToken : undefined
 
