@@ -1,8 +1,9 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import { getToken } from 'next-auth/jwt'
 import { issuerFor } from '@qavren/auth-next'
 import { signOut } from '@/auth'
 import { getEnv, requireEnv } from '@/lib/env'
+import { isSessionCookieName } from '@/lib/session-cookies'
 
 /**
  * Sign out of ReCharacter *and* of the realm.
@@ -12,7 +13,7 @@ import { getEnv, requireEnv } from '@/lib/env'
  * account straight back without a password. RP-initiated logout ends the realm
  * session too, which is why the ID token is kept on the JWT at all.
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const env = getEnv()
   const appBaseUrl = requireEnv('APP_BASE_URL')
   const appOrigin = new URL(appBaseUrl).origin
@@ -48,5 +49,26 @@ export async function POST(req: Request) {
   // post-logout redirect; without either it prompts for confirmation instead.
   else end.searchParams.set('client_id', `${env.QAVREN_REALM}-web`)
 
-  return NextResponse.redirect(end, 303)
+  const res = NextResponse.redirect(end, 303)
+  // Belt and braces: Auth.js's own deletion rides on cookies(), and a refreshed
+  // session cookie appended by anything else would race it. Delete what the
+  // request actually carried (chunked cookies included), under the exact name it
+  // carried — the `__Secure-` form needs the Secure attribute to be accepted.
+  //
+  // Both Max-Age=0 AND a past Expires: Next re-parses the response's Set-Cookie
+  // headers when it merges cookies() mutations (appendMutableCookies) and its
+  // compact() drops the falsy Max-Age, which would turn this deletion into an
+  // empty-value cookie that also displaces Auth.js's own same-name deletion.
+  for (const c of req.cookies.getAll()) {
+    if (!isSessionCookieName(c.name)) continue
+    res.cookies.set(c.name, '', {
+      path: '/',
+      maxAge: 0,
+      expires: new Date(0),
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: c.name.startsWith('__Secure-'),
+    })
+  }
+  return res
 }

@@ -27,6 +27,8 @@ const base = buildAuthConfig({
  */
 export const authConfig: NextAuthConfig = {
   ...base,
+  // Fixed, not sliding: proxy.ts strips the session cookie Auth.js's wrapper
+  // would re-issue on every response (a late request must not undo a sign-out).
   session: { strategy: 'jwt', maxAge: 60 * 60 * 24 * 7 },
   callbacks: {
     ...base.callbacks,
