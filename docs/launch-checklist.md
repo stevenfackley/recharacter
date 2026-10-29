@@ -22,20 +22,20 @@ Everything between code-complete (all 8 roadmap plans merged) and public launch.
 
 ## 3. Infrastructure — live at recharacter.us
 
-- [x] Re-platformed onto the fleet convention (Plan 09, 2026-08-27): Keycloak realm `recharacter` on qavren-auth for identity, Postgres schema `recharacter` on qavren-db for data (owner-scoped queries, no RLS), Cloudflare R2 for case documents. Built and merged; cutover (below) is the remaining Steve-only step.
-- [ ] **Cutover — R2**: create bucket `recharacter-case-documents` (private) + a scoped API token (Object Read & Write); put `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` in the box `.env`.
-- [ ] **Cutover — qavren-db**: `pwsh tools/provision-app.ps1 -App recharacter -Env prod -RotatePassword`; `DATABASE_URL` (pooler, `:6543`) into the box `.env`; `DATABASE_URL_MIGRATE` (session, `:5432`) as a `gh secret set` on the repo (read only by the deploy workflow's `migrate` job).
-- [ ] **Cutover — Keycloak admin secret**: `QAVREN_ADMIN_CLIENT_SECRET` on the box, same value as the qavren-auth box's `RECHARACTER_ADMIN_CLIENT_SECRET`; account deletion fails closed without it.
-- [ ] **Cutover — Auth.js secrets**: `AUTH_SECRET` (`openssl rand -base64 32`) and `AUTH_URL=https://recharacter.us` on the box.
+- [x] Re-platformed onto the fleet convention (Plan 09, 2026-08-27): Keycloak realm `recharacter` on qavren-auth for identity, Postgres schema `recharacter` on qavren-db for data (owner-scoped queries, no RLS), Cloudflare R2 for case documents. Built, merged, and cut over 2026-08-28.
+- [x] **Cutover — R2** (done 2026-08-28): create bucket `recharacter-case-documents` (private) + a scoped API token (Object Read & Write); put `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` in the box `.env`.
+- [x] **Cutover — qavren-db** (done 2026-08-28): `pwsh tools/provision-app.ps1 -App recharacter -Env prod -RotatePassword`; `DATABASE_URL` (pooler, `:6543`) into the box `.env`; `DATABASE_URL_MIGRATE` (session, `:5432`) as a `gh secret set` on the repo (read only by the deploy workflow's `migrate` job).
+- [x] **Cutover — Keycloak admin secret** (done 2026-08-28): `QAVREN_ADMIN_CLIENT_SECRET` on the box, same value as the qavren-auth box's `RECHARACTER_ADMIN_CLIENT_SECRET`; account deletion fails closed without it.
+- [x] **Cutover — Auth.js secrets** (done 2026-08-28): `AUTH_SECRET` (`openssl rand -base64 32`) and `AUTH_URL=https://recharacter.us` on the box.
 - [ ] Realm follow-up: consider `verifyEmail: true` on the `recharacter` Keycloak realm (qavren-auth repo change).
 - [ ] Client follow-up: flip `recharacter-web` → confidential (`confidential: true` + `QAVREN_CLIENT_SECRET` against `recharacter-web-confidential`) once `@qavren/auth-next` ≥ 0.2.0 publishes.
 - [ ] Delete the old Supabase project `ldxgdceplsdycviroisd` after its 7-day read-only retention window (paused, not deleted, at cutover).
-- [ ] Cutover smoke: register on Keycloak's hosted page → upload a document → routing renders → packet generates → delete the account → confirm the user is gone from the Keycloak `recharacter` realm.
+- [x] Cutover smoke (2026-08-28; the deploy workflow's live e2e repeats the register/delete lifecycle on every deploy): register on Keycloak's hosted page → upload a document → routing renders → packet generates → delete the account → confirm the user is gone from the Keycloak `recharacter` realm.
 - [ ] Auth email polish: Keycloak realm mail config (templates/sending domain) — a qavren-auth concern, currently default SMTP; fine for smoke, not for public traffic.
 - [x] Next.js app hosted: Qavren-Web-Server EC2, rootless Docker, Cloudflare Tunnel ingress (zero inbound ports on the box). All env set per `deploy/env.example`.
 - [ ] `AI_KEY_ENCRYPTION_SECRET` (KEK) lives in the box `.env`, not a secrets manager; rotation story is still a known gap.
 - [x] .NET routing API deployed (internal-only container on the compose network; `ROUTING_API_URL` wired).
-- [x] CI → CD: `deploy.yml` builds both images → GHCR → SSH pull + `docker compose up -d` on every push to `main` (GHCR pull auth via workflow token, PR #14). SSH-key secrets, not OIDC — the workspace OIDC convention targets AWS API access; this is a box deploy.
+- [x] CI → CD: `deploy.yml` builds both images → GHCR → SSH pull + `docker compose up -d` on every push to `main` that touches `web/`, `src/`, `deploy/` or the workflow (or a manual dispatch) (GHCR pull auth via workflow token, PR #14). SSH-key secrets, not OIDC — the workspace OIDC convention targets AWS API access; this is a box deploy.
 - [x] Domain + TLS: recharacter.us via Cloudflare (registrar + DNS + proxy + tunnel).
 - [ ] **HUMAN: trademark check for "ReCharacter"** (mirrors Reclaim's naming caveat — never done).
 
@@ -47,7 +47,8 @@ Everything between code-complete (all 8 roadmap plans merged) and public launch.
 
 ## 5. Ops & safety
 
-- [ ] Error tracking (Sentry is already in the workspace toolbox) + uptime checks on web, routing API, qavren-db.
+- [x] Web uptime probe: `.github/workflows/uptime.yml` checks `/` and `/login` every 15 minutes; a failed run emails the owner.
+- [ ] Error tracking (Sentry is already in the workspace toolbox) + uptime checks on the routing API and qavren-db.
 - [x] Managed-tier cost guardrails — shipped 2026-07-11: hard per-user daily token cap on non-BYOK calls at the gateway (`AI_MANAGED_DAILY_TOKEN_CAP`, default 2M/UTC day). Aggregate spend *alerting* on `ai_usage` is still open (fold into the Sentry/uptime item).
 - [x] Backups: qavren-db runs nightly per-schema dumps to R2, platform-managed — no app-side setup.
 - [ ] Retention: document the app-level retention policy the privacy copy promises.

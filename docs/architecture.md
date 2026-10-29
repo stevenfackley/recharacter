@@ -37,7 +37,7 @@ qavren-db gives ReCharacter one Postgres schema (`recharacter`) and one role tha
 5. **AI spend limits count attempts, not completions.** `ai_attempts` is written *before* the per-minute check and the provider call, so concurrent bursts and provider-failure loops are bounded; daily token caps (per owner and the shared `AI_GLOBAL_DAILY_TOKEN_CAP`) are SQL aggregates over `ai_usage` (partial index on managed-tier rows).
 6. **Object keys carry the same prefix rule.** Every R2/S3 key is `{ownerId}/{caseId}/{uuid}-{name}`; every read, list, and delete asserts the caller's prefix before touching the key (`assertOwnedKey` in `web/src/lib/case-documents.ts`).
 
-**The `web/tests/*-scoping.integration.test.ts` suites (two synthetic owners, Alice/Bob) are the enforcement of this invariant, not a nice-to-have** — they run in CI against real Postgres 17 + MinIO on every PR, and every new owner-scoped table or object type must add a case to them before it ships.
+**The `web/tests/*-scoping.integration.test.ts` suites (two synthetic owners, Alice/Bob) are the enforcement of this invariant, not a nice-to-have** — they run in CI against real Postgres 17 + RustFS on every PR, and every new owner-scoped table or object type must add a case to them before it ships.
 
 ## Identity flow
 
@@ -54,7 +54,7 @@ veteran ──▶ /login ──▶ signIn('keycloak') ──▶ Keycloak hosted 
 
 ## Storage model
 
-Case documents go through an `ObjectStore` interface (`web/src/lib/storage/object-store.ts`) with two implementations: `S3ObjectStore` (R2 in prod, MinIO in dev/CI, both speak the S3 API) and `MemoryObjectStore` (unit tests). Every upload is size-capped (15 MiB) and its content type is determined server-side by magic-byte sniffing (`sniffContentType` in `web/src/lib/case-documents.ts`) — the client-declared MIME type is never trusted. Deletion sweeps list-then-remove against the owner's prefix and re-verifies the prefix is empty before returning.
+Case documents go through an `ObjectStore` interface (`web/src/lib/storage/object-store.ts`) with two implementations: `S3ObjectStore` (R2 in prod, RustFS in dev/CI, both speak the S3 API) and `MemoryObjectStore` (unit tests). Every upload is size-capped (15 MiB) and its content type is determined server-side by magic-byte sniffing (`sniffContentType` in `web/src/lib/case-documents.ts`) — the client-declared MIME type is never trusted. Deletion sweeps list-then-remove against the owner's prefix and re-verifies the prefix is empty before returning.
 
 ## Env contract
 
@@ -71,7 +71,7 @@ Case documents go through an `ObjectStore` interface (`web/src/lib/storage/objec
 | `KEYCLOAK_ADMIN_BASE_URL` | optional override for the admin API host |
 | `APP_BASE_URL` | `https://recharacter.us` — Stripe redirects + post-logout redirect |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | object store credentials |
-| `S3_ENDPOINT` | MinIO endpoint override for dev/CI |
+| `S3_ENDPOINT` | RustFS endpoint override for dev/CI |
 | `ANTHROPIC_API_KEY`, `AI_KEY_ENCRYPTION_SECRET`, `AI_RATE_LIMIT_PER_MINUTE`, `AI_MANAGED_DAILY_TOKEN_CAP`, `AI_GLOBAL_DAILY_TOKEN_CAP` | AI gateway |
 | `ROUTING_API_URL` | .NET routing service URL |
 | `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID` | billing |
@@ -100,6 +100,6 @@ statement + evidence + filled DD form ──▶ packet PDF ──▶ veteran fil
 ## Correctness surfaces (ranked)
 
 1. **Deadline math** — day-before/day-of/day-after + leap-day tests; generous UTC-11 clock.
-2. **Owner-scoping isolation** — two-user integration suites per table/object type, run against real Postgres + MinIO in CI (see "Owner-scoping invariant" above).
+2. **Owner-scoping isolation** — two-user integration suites per table/object type, run against real Postgres + RustFS in CI (see "Owner-scoping invariant" above).
 3. **BYOK key custody** — AES-256-GCM, tamper tests, no silent managed fallback, no plaintext at rest.
 4. **Form fidelity** (Plan 07) — the filled DD form must match the official revision.

@@ -14,7 +14,7 @@ ReCharacter walks a veteran through building a **mental-health-based discharge-u
 | 02 | Auth & persistence (Keycloak via qavren-auth + Postgres schema on qavren-db, owner-scoped queries) | ✅ Merged — re-platformed by 09 |
 | 03 | AI gateway (managed proxy + BYOK) | ✅ Merged |
 | 04–08 | Intake/extraction · Evidence/coaching · Nexus/draft · Packet export · Billing | ✅ Merged 2026-07-06 |
-| 09 | Re-platform onto qavren-auth + qavren-db + R2 | ✅ Built — pending cutover |
+| 09 | Re-platform onto qavren-auth + qavren-db + R2 | ✅ Live (cut over 2026-08-28) |
 
 Full roadmap: [`docs/superpowers/plans/2026-07-05-recharacter-ROADMAP.md`](docs/superpowers/plans/2026-07-05-recharacter-ROADMAP.md)
 
@@ -49,7 +49,7 @@ dotnet test                                  # all .NET tests
 dotnet run --project src/ReCharacter.RoutingApi
 
 # Web app
-docker compose -f compose.dev.yaml up -d    # local Postgres 17 + MinIO (from repo root)
+docker compose -f compose.dev.yaml up -d    # local Postgres 17 + RustFS (S3) (from repo root)
 cd web
 cp .env.example .env.local
 npm ci

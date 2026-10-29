@@ -5,7 +5,7 @@ Architecture: **Qavren-Web-Server (existing EC2, rootless Docker)** runs `deploy
 TLS at Cloudflare (which is also the domain registrar). Identity is a **Keycloak realm** on
 qavren-auth, data is a **Postgres schema** on qavren-db, and case documents live in a
 **Cloudflare R2** bucket. Images live in **GHCR**, built and deployed by `.github/workflows/deploy.yml`
-on every push to `main`.
+on every push to `main` that touches `web/`, `src/`, `deploy/` or the workflow (or a manual dispatch).
 
 ```
 Internet ──TLS──> Cloudflare (DNS+proxy) ──tunnel──> cloudflared ──> web:3000 ──> routing:8080
@@ -71,7 +71,7 @@ re-enter keys), `APP_BASE_URL=https://recharacter.us`, `TUNNEL_TOKEN` (step 4). 
 
 ## Every deploy after that
 
-Push to `main` (or run the Deploy workflow manually) →
+Push to `main` touching `web/`, `src/`, `deploy/` or the workflow (or run the Deploy workflow manually) →
 1. **Build**: both images build → GHCR, tagged `:latest` and `:${{ github.sha }}`.
 2. **Migrate**: a `migrate` job checks out the repo, `npm ci`, then `npm run db:migrate` against
    `DATABASE_URL_MIGRATE` — **fails closed**: if the secret is unset, the job exits non-zero before
@@ -135,6 +135,6 @@ Still manual — these write real records and cost real tokens, so no automated 
 
 ## Deliberately not in this stack (tracked in docs/launch-checklist.md)
 
-Stripe live mode · error tracking (Sentry) · uptime checks · custom SMTP (Keycloak's own realm
+Stripe live mode · error tracking (Sentry) · uptime checks beyond the `uptime.yml` web probe · custom SMTP (Keycloak's own realm
 mail config, a qavren-auth concern, not this repo's) · rate limiting beyond Cloudflare defaults ·
 backups beyond qavren-db's own (nightly per-schema dump → R2, platform-managed).

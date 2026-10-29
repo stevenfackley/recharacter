@@ -52,6 +52,8 @@ jobs:
         run: npx vitest run src
 
   web-integration:
+    # The job runs RustFS, not MinIO. The name is a required status check in main's
+    # branch protection: rename it only together with that protection setting.
     name: Web (owner-scoping integration, Postgres + MinIO)
     runs-on: ubuntu-latest
     timeout-minutes: 20

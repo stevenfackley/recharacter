@@ -6,7 +6,7 @@
 |------|---------|-------|
 | .NET SDK | 10.x | solution file is the newer `ReCharacter.slnx` format — all `dotnet` commands handle it transparently |
 | Node.js | 22+ | repo developed on v26 |
-| Docker Desktop | running | required by `compose.dev.yaml` (local Postgres + MinIO) |
+| Docker Desktop | running | required by `compose.dev.yaml` (local Postgres + RustFS) |
 
 ## First-time setup
 
@@ -16,7 +16,7 @@ git clone https://github.com/stevenfackley/recharacter && cd recharacter
 # .NET
 dotnet build && dotnet test          # rules-engine unit tests + API integration tests
 
-# Local stack (from repo root) — Postgres 17 on :55433, MinIO on :9100 (console :9101)
+# Local stack (from repo root) — Postgres 17 on :55433, RustFS on :9100 (console :9101)
 docker compose -f compose.dev.yaml up -d
 
 # Web
@@ -35,8 +35,8 @@ npm run dev                          # http://localhost:3000
 | `AUTH_SECRET` | `openssl rand -base64 32` | Auth.js cookie encryption — must be set locally too |
 | `AUTH_URL` / `APP_BASE_URL` | `http://localhost:3000` | `http://localhost:3000/*` is an allowed redirect URI on the `recharacter-web` Keycloak client |
 | `QAVREN_AUTH_URL` | `https://auth.recharacter.us` | local dev signs in against the **live** Keycloak realm — there is no local Keycloak |
-| `S3_ENDPOINT` | `http://127.0.0.1:9100` | routes the R2 client at local MinIO instead |
-| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` / `R2_ACCOUNT_ID` | `minio` / `minio12345` / `recharacter-dev` / `local` | MinIO credentials from `compose.dev.yaml` |
+| `S3_ENDPOINT` | `http://127.0.0.1:9100` | routes the R2 client at local RustFS instead |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` / `R2_ACCOUNT_ID` | `minio` / `minio12345` / `recharacter-dev` / `local` | RustFS credentials from `compose.dev.yaml` (they keep the legacy `minio` values) |
 | `ANTHROPIC_API_KEY` | your key (Plan 03+) | server only |
 | `AI_KEY_ENCRYPTION_SECRET` | `openssl rand -base64 32` (Plan 03+) | server only |
 
@@ -111,9 +111,9 @@ Add/edit tables in `web/src/db/schema.ts`, run `npm run db:generate` to emit a n
 
 ## CI
 
-`.github/workflows/ci.yml` runs four jobs on every PR: **rules-engine** (`dotnet test`), **web** (build + unit tests, no database), **web-integration** (Postgres 17 + MinIO service containers, `npm run db:migrate`, then the full Vitest suite including the owner-scoping isolation tests), and **web-e2e** (same services, then `public.spec.ts` against a `next start` the harness launches; the HTML report uploads as an artifact on failure).
+`.github/workflows/ci.yml` runs four jobs on every PR: **rules-engine** (`dotnet test`), **web** (build + unit tests, no database), **web-integration** (Postgres 17 service container plus RustFS started with `docker run`, `npm run db:migrate`, then the full Vitest suite including the owner-scoping isolation tests), and **web-e2e** (same services, then `public.spec.ts` against a `next start` the harness launches; the HTML report uploads as an artifact on failure).
 
-Only the first three are in `main`'s required-checks ruleset — branch protection names them verbatim, so adding **web-e2e** there is a separate, deliberate change.
+All four are required status checks in `main`'s classic branch protection (not a ruleset), which names them verbatim: `Rules engine (.NET)`, `Web (build + unit)`, `Web (owner-scoping integration, Postgres + MinIO)`, `Web (e2e, public)`. The integration job runs RustFS, not MinIO; its name stays as-is because renaming it without updating branch protection in the same change would leave every PR waiting on a check that never reports.
 
 ## Conventions
 
