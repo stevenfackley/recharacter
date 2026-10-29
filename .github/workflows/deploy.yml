@@ -21,6 +21,8 @@ permissions:
 jobs:
   build-web:
     name: Build web image
+    # Skip Dependabot auto-merge pushes (fleet guardrail 2026-09-04); migrate and deploy skip via needs.
+    if: github.event_name != 'push' || (github.event.head_commit.author.username != 'dependabot[bot]' && github.actor != 'dependabot[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -44,6 +46,8 @@ jobs:
 
   build-routing:
     name: Build routing image
+    # Skip Dependabot auto-merge pushes (fleet guardrail 2026-09-04); migrate and deploy skip via needs.
+    if: github.event_name != 'push' || (github.event.head_commit.author.username != 'dependabot[bot]' && github.actor != 'dependabot[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
