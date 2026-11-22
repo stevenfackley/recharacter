@@ -1,0 +1,23 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`deleteAccountData, statement by statement > the transaction runs exactly these statements, in this order 1`] = `
+[
+  "SET LOCAL recharacter.allow_ledger_delete = 'on'",
+  "delete from "recharacter"."ai_usage" where "recharacter"."ai_usage"."owner_id" = $1 returning "id"",
+  "delete from "recharacter"."entitlements" where "recharacter"."entitlements"."owner_id" = $1 returning "id"",
+  "delete from "recharacter"."pending_checkouts" where "recharacter"."pending_checkouts"."owner_id" = $1 returning "id"",
+  "delete from "recharacter"."ai_credentials" where "recharacter"."ai_credentials"."owner_id" = $1 returning "owner_id"",
+  "delete from "recharacter"."ai_attempts" where "recharacter"."ai_attempts"."owner_id" = $1 returning "id"",
+  "select "id" from "recharacter"."service_facts" where "recharacter"."service_facts"."owner_id" = $1",
+  "select "id" from "recharacter"."case_context" where "recharacter"."case_context"."owner_id" = $1",
+  "select "id" from "recharacter"."evidence_items" where "recharacter"."evidence_items"."owner_id" = $1",
+  "select "id" from "recharacter"."nexus_answers" where "recharacter"."nexus_answers"."owner_id" = $1",
+  "select "id" from "recharacter"."drafts" where "recharacter"."drafts"."owner_id" = $1",
+  "delete from "recharacter"."cases" where "recharacter"."cases"."owner_id" = $1 returning "id"",
+  "select "id" from "recharacter"."service_facts" where "recharacter"."service_facts"."owner_id" = $1",
+  "select "id" from "recharacter"."case_context" where "recharacter"."case_context"."owner_id" = $1",
+  "select "id" from "recharacter"."evidence_items" where "recharacter"."evidence_items"."owner_id" = $1",
+  "select "id" from "recharacter"."nexus_answers" where "recharacter"."nexus_answers"."owner_id" = $1",
+  "select "id" from "recharacter"."drafts" where "recharacter"."drafts"."owner_id" = $1",
+]
+`;
