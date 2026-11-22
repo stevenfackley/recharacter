@@ -6,8 +6,9 @@ import { recordAttempt, recordUsage } from '@/lib/ai/usage'
 import { isEntitled } from '@/lib/billing'
 import { getEnv } from '@/lib/env'
 
-export type AiTaskResult =
-  | { ok: true; data: unknown }
+/** `T` is the task's validated output; runAiTask (lib/ai/run-task.ts) supplies it per task. */
+export type AiTaskResult<T = unknown> =
+  | { ok: true; data: T }
   | {
       ok: false
       status: 400 | 402 | 404 | 422 | 429 | 502 | 503
@@ -25,6 +26,10 @@ export type AiTaskResult =
  * The single execution path for every AI call (used by the API route AND by
  * server actions). The caller has already authenticated the user and passes
  * their owner id; every lookup below is scoped to it.
+ *
+ * Untyped on purpose: /api/ai/[task] hands it any name and any body, and the
+ * registry lookup and the task's own schemas are what refuse a bad one. Server
+ * actions call it through runAiTask, which types the name, input and output.
  */
 export async function executeAiTask(
   ownerId: string,

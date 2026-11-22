@@ -6,6 +6,7 @@ import { getServiceFacts } from '@/lib/facts'
 import { getDraft } from '@/lib/drafts'
 import { getEvidenceStatuses } from '@/lib/evidence-items'
 import { isEntitled } from '@/lib/billing'
+import { hasConfirmedFacts, packetReady } from '@/lib/readiness'
 
 export const metadata: Metadata = { title: 'Your filing packet' }
 
@@ -13,7 +14,7 @@ export default async function PacketPage() {
   const user = await requireSessionUser('/case/packet')
   const c = await getOrCreateCase(user.id)
   const facts = await getServiceFacts(user.id, c.id)
-  const factsConfirmed = facts?.confirmed ?? false
+  const factsConfirmed = hasConfirmedFacts(facts)
 
   const statement = await getDraft(user.id, c.id, 'personal_statement')
   const coverLetter = await getDraft(user.id, c.id, 'cover_letter')
@@ -23,9 +24,8 @@ export default async function PacketPage() {
   const statuses = await getEvidenceStatuses(user.id, c.id)
   const evidenceCount = Object.values(statuses).filter((s) => s === 'collected').length
 
-  // Mirrors the route's gates exactly: confirmed facts + a personal-statement
-  // draft are required. Cover letter and evidence are included when present.
-  const ready = factsConfirmed && Boolean(statement) && entitled
+  // The gate /api/packet refuses on (see lib/readiness.ts).
+  const ready = packetReady({ facts, statement, entitled })
 
   return (
     <main>

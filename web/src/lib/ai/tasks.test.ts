@@ -151,6 +151,64 @@ describe('task registry', () => {
     expect(premiumNames).toEqual(['draft_cover_letter', 'draft_statement', 'shape_nexus_answer'])
   })
 
+  test('the branch and characterization sets each schema accepts are exactly the RulesEngine values', () => {
+    const BRANCHES = ['Army', 'Navy', 'MarineCorps', 'AirForce', 'SpaceForce', 'CoastGuard']
+    const CHARACTERIZATIONS = [
+      'Honorable', 'GeneralUnderHonorable', 'OtherThanHonorable',
+      'BadConductDischarge', 'DishonorableDischarge', 'Uncharacterized',
+    ]
+    const enumOf = (schema: z.ZodTypeAny, key: string) => {
+      let field = (schema as z.ZodObject<z.ZodRawShape>).shape[key] as z.ZodTypeAny
+      if (field instanceof z.ZodNullable) field = field.unwrap() as z.ZodTypeAny
+      return (field as z.ZodEnum).options
+    }
+    const extract = getTask('extract_service_facts')!.outputSchema
+    const statement = getTask('draft_statement')!.inputSchema
+    const cover = getTask('draft_cover_letter')!.inputSchema
+    for (const schema of [extract, statement, cover]) {
+      expect(enumOf(schema, 'branch')).toEqual(BRANCHES)
+      expect(enumOf(schema, 'characterization')).toEqual(CHARACTERIZATIONS)
+    }
+    const sent = getTask('extract_service_facts')!.jsonSchema.properties as Record<string, { anyOf: Array<{ enum?: string[] }> }>
+    expect(sent.branch.anyOf[1].enum).toEqual(BRANCHES)
+    expect(sent.characterization.anyOf[1].enum).toEqual(CHARACTERIZATIONS)
+  })
+
+  test('whole-registry pin: every task\'s contract as sent to the model', () => {
+    // One recorded document per task: the system prompt, the JSON schema sent
+    // as output_config.format, and the prompt built from a representative
+    // (fake) input. Any change to what the model is told shows up here. (The
+    // Zod schemas are pinned by behaviour in the tests around this one, not by
+    // a rendering that would churn with every Zod release.)
+    const SAMPLE_INPUTS: Record<string, unknown> = {
+      ping: { message: 'fixture ping' },
+      extract_service_facts: { documentBase64: 'Rml4dHVyZQ==', mediaType: 'image/png', notes: 'fixture note' },
+      coaching_note: { score: 40, band: 'developing', topGapLabel: 'Fixture gap', collectedLabels: ['Fixture A', 'Fixture B'] },
+      shape_nexus_answer: { questionKey: 'q2', questionPrompt: 'Fixture question?', rawNarrative: 'Fixture narrative.' },
+      draft_statement: {
+        answers: { q1_condition: 'Fixture 1', q2_during_service: 'Fixture 2', q3_mitigation: 'Fixture 3', q4_outweigh: 'Fixture 4' },
+        branch: 'SpaceForce', characterization: 'BadConductDischarge', dischargeDate: '2001-02-03',
+        collectedEvidence: ['Fixture evidence'],
+      },
+      draft_cover_letter: {
+        boardName: 'Fixture Board', form: 'DD149', branch: 'CoastGuard',
+        characterization: 'Uncharacterized', conditionSummary: 'a fixture condition arising during service',
+      },
+    }
+    expect(Object.keys(TASKS)).toEqual(Object.keys(SAMPLE_INPUTS))
+    for (const [name, task] of Object.entries(TASKS)) {
+      expect({
+        name: task.name,
+        model: task.model,
+        premium: task.premium ?? false,
+        maxTokens: task.maxTokens,
+        system: task.system,
+        jsonSchema: task.jsonSchema,
+        prompt: task.buildPrompt(SAMPLE_INPUTS[name]),
+      }).toMatchSnapshot(name)
+    }
+  })
+
   test('draft_cover_letter embeds board and form', () => {
     const cover = getTask('draft_cover_letter')!
     const prompt = cover.buildPrompt({

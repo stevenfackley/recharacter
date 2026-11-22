@@ -6,7 +6,8 @@ import { getSessionUser, requireSessionUser } from '@/lib/session'
 import { getOrCreateCase } from '@/lib/cases'
 import { caseContextSchema, getCaseContext, saveCaseContext } from '@/lib/context'
 import { getEvidenceStatuses, setEvidenceStatus } from '@/lib/evidence-items'
-import { executeAiTask } from '@/lib/ai/gateway'
+import { runAiTask } from '@/lib/ai/run-task'
+import { EVIDENCE_STATUSES } from '@/lib/domain'
 import {
   EVIDENCE_CATALOG, recommendEvidence, scoreCase,
   type EvidenceStatus, type EvidenceType,
@@ -33,8 +34,6 @@ export async function saveContext(formData: FormData) {
   redirect('/case/evidence')
 }
 
-const STATUSES: readonly EvidenceStatus[] = ['needed', 'requested', 'collected', 'not_applicable']
-
 export async function setItemStatus(formData: FormData) {
   // The session first: an unauthenticated caller learns nothing about which
   // item types or statuses this app accepts.
@@ -42,7 +41,7 @@ export async function setItemStatus(formData: FormData) {
 
   const itemType = String(formData.get('itemType') ?? '')
   const status = String(formData.get('status') ?? '')
-  if (!STATUSES.includes(status as EvidenceStatus)) redirect('/case/evidence')
+  if (!EVIDENCE_STATUSES.includes(status as EvidenceStatus)) redirect('/case/evidence')
   // App-level allowlist symmetric with the status check (the DB check constraint
   // remains the backstop, but a bad type shouldn't read as a transient error).
   // `hasOwn`, not `in`: `in` walks the prototype chain, so 'constructor' and
@@ -73,15 +72,10 @@ async function getCoaching(ownerId: string, input: {
   score: number; band: 'building' | 'developing' | 'strong'
   topGapLabel: string | null; collectedLabels: string[]
 }): Promise<string | null> {
-  try {
-    const result = await executeAiTask(ownerId, 'coaching_note', input)
-    return result.ok ? (result.data as { note: string }).note : null
-  } catch (err) {
-    // The gateway can now reject outright (an attempt it could not record).
-    // Encouragement is optional; a missing note is the right outcome, never a 500.
-    console.error('coaching note failed:', err instanceof Error ? err.message : err)
-    return null
-  }
+  // Encouragement is optional: any refusal, including a gateway that could not
+  // record the attempt (runAiTask's 503), is a missing note, never a 500.
+  const result = await runAiTask(ownerId, 'coaching_note', input)
+  return result.ok ? result.data.note : null
 }
 
 /**

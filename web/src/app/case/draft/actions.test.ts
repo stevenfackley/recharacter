@@ -53,11 +53,12 @@ vi.mock('@/lib/nexus', () => ({
 }))
 
 const mockSaveGeneratedDraft = vi.fn()
+const mockSaveEditedDraft = vi.fn()
 vi.mock('@/lib/drafts', () => ({
   getDraft: async () => null,
   regenerateAllowedFor: () => true,
   saveGeneratedDraft: (...args: unknown[]) => mockSaveGeneratedDraft(...args),
-  saveEditedDraft: vi.fn(),
+  saveEditedDraft: (...args: unknown[]) => mockSaveEditedDraft(...args),
 }))
 
 const ROUTING = {
@@ -179,6 +180,63 @@ describe('drafting actions — owner scoping and persistence', () => {
     await expect(generateStatement(new FormData())).rejects.toThrow('NEXT_REDIRECT')
     const input = mockExecute.mock.calls[0][2] as { collectedEvidence: string[] }
     expect(input.collectedEvidence).toHaveLength(1)
+  })
+
+  test('the statement task gets exactly the answers, the confirmed facts and the collected labels', async () => {
+    mockGetEvidenceStatuses.mockResolvedValue({ dd214: 'collected', nexus_letter: 'collected', buddy_statement: 'needed' })
+    mockExecute.mockResolvedValue({ ok: true, data: { statement: 'My story.' } })
+    const { generateStatement } = await import('./actions')
+
+    await expect(generateStatement(new FormData())).rejects.toThrow('NEXT_REDIRECT')
+    expect(mockExecute).toHaveBeenCalledWith('user-1', 'draft_statement', {
+      answers: ANSWERS,
+      branch: 'MarineCorps',
+      characterization: 'OtherThanHonorable',
+      dischargeDate: '2015-04-01',
+      collectedEvidence: [
+        'DD-214 (Certificate of Release or Discharge)',
+        'Nexus letter from a mental-health clinician',
+      ],
+    })
+  })
+
+  test('the cover letter task gets the routed board and form and the condition summary', async () => {
+    mockExecute.mockResolvedValue({ ok: true, data: { letter: 'My letter.' } })
+    const { generateCoverLetter } = await import('./actions')
+
+    await expect(generateCoverLetter(new FormData())).rejects.toThrow('NEXT_REDIRECT')
+    expect(mockExecute).toHaveBeenCalledWith('user-1', 'draft_cover_letter', {
+      boardName: 'NDRB',
+      form: 'DD293',
+      branch: 'MarineCorps',
+      characterization: 'OtherThanHonorable',
+      conditionSummary: 'an adjustment disorder arising during service',
+    })
+    expect(mockSaveGeneratedDraft).toHaveBeenCalledWith('user-1', 'case-1', 'cover_letter', 'My letter.')
+    // The confirmed row itself; routeDischarge picks the four routed facts.
+    expect(mockRouteDischarge).toHaveBeenCalledWith(FACTS)
+  })
+
+  test.each(['personal_statement', 'cover_letter'])('saveDraft keeps the veteran\'s %s edits', async (kind) => {
+    const { saveDraft } = await import('./actions')
+    const form = new FormData()
+    form.set('kind', kind)
+    form.set('content', 'Edited text.')
+
+    await expect(saveDraft(form)).rejects.toThrow('NEXT_REDIRECT')
+    expect(mockSaveEditedDraft).toHaveBeenCalledWith('user-1', 'case-1', kind, 'Edited text.')
+    expect(redirectSpy).toHaveBeenCalledWith('/case/draft')
+  })
+
+  test.each(['', 'statement', 'constructor', 'PERSONAL_STATEMENT'])('saveDraft refuses the kind %j and saves nothing', async (kind) => {
+    const { saveDraft } = await import('./actions')
+    const form = new FormData()
+    form.set('kind', kind)
+    form.set('content', 'Edited text.')
+
+    await expect(saveDraft(form)).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirectSpy).toHaveBeenCalledWith('/case/draft')
+    expect(mockSaveEditedDraft).not.toHaveBeenCalled()
   })
 
   test('a failed save surfaces as save_failed, never as the thrown message', async () => {

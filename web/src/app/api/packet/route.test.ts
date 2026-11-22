@@ -139,6 +139,8 @@ describe('GET /api/packet', () => {
     expect(mockGetServiceFacts).toHaveBeenCalledWith('user-1', 'case-1')
     expect(mockGetEvidenceStatuses).toHaveBeenCalledWith('user-1', 'case-1')
     expect(mockGetDraft).toHaveBeenCalledWith('user-1', 'case-1', 'personal_statement')
+    // The confirmed row itself; routeDischarge picks the four routed facts.
+    expect(mockRouteDischarge).toHaveBeenCalledWith(FACTS)
   })
 
   test('the packet is never cached by a shared cache, and varies on the session cookie', async () => {

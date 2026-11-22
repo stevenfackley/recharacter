@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { routeDischarge } from '@/lib/routing'
+import type { ServiceFactsRow } from '@/lib/facts'
 
 const RESULT = {
   recommendedBoard: 'Drb',
@@ -34,6 +35,41 @@ describe('routeDischarge', () => {
     const [url, init] = vi.mocked(fetch).mock.calls[0]
     expect(url).toBe('http://routing.test/route')
     expect(JSON.parse(String(init!.body)).branch).toBe('MarineCorps')
+  })
+
+  test('the request body is exactly the four routed facts, in order', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(RESULT), { status: 200 }))
+    await routeDischarge({
+      branch: 'CoastGuard',
+      dischargeDate: '2001-02-03',
+      characterization: 'Uncharacterized',
+      wasGeneralCourtMartial: true,
+    })
+
+    const [, init] = vi.mocked(fetch).mock.calls[0]
+    expect(init).toEqual({
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{"branch":"CoastGuard","dischargeDate":"2001-02-03","characterization":"Uncharacterized","wasGeneralCourtMartial":true}',
+      cache: 'no-store',
+    })
+  })
+
+  test('a whole facts row sends the same four facts and nothing else from the row', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify(RESULT), { status: 200 }))
+    const row: ServiceFactsRow = {
+      id: 'facts-fixture', case_id: 'case-fixture', source: 'extracted', confirmed: true,
+      branch: 'CoastGuard',
+      dischargeDate: '2001-02-03',
+      characterization: 'Uncharacterized',
+      wasGeneralCourtMartial: true,
+    }
+    await routeDischarge(row)
+
+    const [, init] = vi.mocked(fetch).mock.calls[0]
+    expect(init!.body).toBe(
+      '{"branch":"CoastGuard","dischargeDate":"2001-02-03","characterization":"Uncharacterized","wasGeneralCourtMartial":true}',
+    )
   })
 
   test('throws on a non-2xx response', async () => {

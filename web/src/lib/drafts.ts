@@ -2,8 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { getDb } from '@/db'
 import { drafts } from '@/db/schema'
 import { assertCaseOwned } from '@/lib/cases'
-
-export type DraftKind = 'personal_statement' | 'cover_letter'
+import type { DraftKind } from '@/lib/domain'
 
 export type Draft = {
   kind: DraftKind

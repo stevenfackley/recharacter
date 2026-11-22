@@ -2,20 +2,21 @@
 
 import { redirect } from 'next/navigation'
 import { requireSessionUser } from '@/lib/session'
-import { executeAiTask, type AiTaskResult } from '@/lib/ai/gateway'
+import { aiFailureCode, runAiTask } from '@/lib/ai/run-task'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
 import { getCaseContext } from '@/lib/context'
 import { getEvidenceStatuses } from '@/lib/evidence-items'
-import { getNexusAnswers, answersComplete } from '@/lib/nexus'
+import { getNexusAnswers } from '@/lib/nexus'
+import { hasCompleteNexus, hasConfirmedFacts } from '@/lib/readiness'
 import { EVIDENCE_CATALOG, type EvidenceType } from '@/lib/evidence'
-import { getDraft, regenerateAllowedFor, saveGeneratedDraft, saveEditedDraft, type DraftKind } from '@/lib/drafts'
+import { getDraft, regenerateAllowedFor, saveGeneratedDraft, saveEditedDraft } from '@/lib/drafts'
+import { DRAFT_KINDS, type ConditionCategory, type DraftKind } from '@/lib/domain'
 import { routeDischarge } from '@/lib/routing'
 
 const MAX_DRAFT_LENGTH = 50_000
-const DRAFT_KINDS = ['personal_statement', 'cover_letter']
 
-const CONDITION_SUMMARY_LABELS: Record<string, string> = {
+const CONDITION_SUMMARY_LABELS: Record<ConditionCategory, string> = {
   ptsd: 'PTSD',
   tbi: 'a traumatic brain injury (TBI)',
   depression_anxiety: 'depression or anxiety',
@@ -32,51 +33,16 @@ async function regenerateAllowed(
   return regenerateAllowedFor(existing, formData.get('confirm'))
 }
 
-/**
- * One mapping from a refused AI task to the page's error CODE.
- *
- * The two BYOK failures are deliberately separate codes. A 502 means the
- * provider saw the key and rejected it; a 503 means we could not decrypt what we
- * stored, so the provider never saw anything at all. Both are fixed by
- * re-entering the key and neither is fixed by retrying, but telling a veteran
- * that Anthropic rejected a key Anthropic never received is simply false.
- */
-function generateFailureCode(result: Extract<AiTaskResult, { ok: false }>): string {
-  if (result.byokKeyRejected) {
-    return result.status === 503 ? 'byok_key_unreadable' : 'byok_key_rejected'
-  }
-  if (result.status === 429) return 'rate_limited'
-  if (result.status === 503) return 'ai_unavailable'
-  return 'generate_failed'
-}
-
-/**
- * The gateway REJECTS (rather than resolving a refusal) when it cannot even
- * record the attempt. Every action that calls it owns that at its own boundary —
- * an unhandled rejection here is a blank 500 on a page the veteran was mid-way
- * through.
- */
-async function runTask(
-  ownerId: string, taskName: string, input: unknown,
-): Promise<AiTaskResult> {
-  try {
-    return await executeAiTask(ownerId, taskName, input)
-  } catch (err) {
-    console.error(`ai task ${taskName} failed:`, err instanceof Error ? err.message : err)
-    return { ok: false, status: 503, error: 'AI unavailable' }
-  }
-}
-
 /** Assembles the personal statement exclusively from the four approved Kurta answers. */
 export async function generateStatement(formData: FormData) {
   const user = await requireSessionUser('/case/draft')
 
   const c = await getOrCreateCase(user.id)
   const answers = await getNexusAnswers(user.id, c.id)
-  if (!answers || !answersComplete(answers)) redirect('/case/nexus')
+  if (!hasCompleteNexus(answers)) redirect('/case/nexus')
 
   const facts = await getServiceFacts(user.id, c.id)
-  if (!facts || !facts.confirmed) redirect('/case/intake')
+  if (!hasConfirmedFacts(facts)) redirect('/case/intake')
 
   if (!(await regenerateAllowed(user.id, c.id, 'personal_statement', formData))) {
     redirect('/case/draft?confirm=statement')
@@ -88,7 +54,7 @@ export async function generateStatement(formData: FormData) {
     .map(([itemType]) => EVIDENCE_CATALOG[itemType as EvidenceType]?.label)
     .filter((label): label is string => Boolean(label))
 
-  const result = await runTask(user.id, 'draft_statement', {
+  const result = await runAiTask(user.id, 'draft_statement', {
     answers,
     branch: facts.branch,
     characterization: facts.characterization,
@@ -97,10 +63,10 @@ export async function generateStatement(formData: FormData) {
   })
   if (!result.ok) {
     if (result.status === 402) redirect('/case/upgrade')
-    redirect(`/case/draft?error=${generateFailureCode(result)}`)
+    redirect(`/case/draft?error=${aiFailureCode(result, 'generate_failed')}`)
   }
 
-  const { statement } = result.data as { statement: string }
+  const { statement } = result.data
   try {
     await saveGeneratedDraft(user.id, c.id, 'personal_statement', statement)
   } catch (err) {
@@ -117,7 +83,7 @@ export async function generateCoverLetter(formData: FormData) {
 
   const c = await getOrCreateCase(user.id)
   const facts = await getServiceFacts(user.id, c.id)
-  if (!facts || !facts.confirmed) redirect('/case/intake')
+  if (!hasConfirmedFacts(facts)) redirect('/case/intake')
 
   const ctx = await getCaseContext(user.id, c.id)
   if (!ctx) redirect('/case/evidence')
@@ -128,12 +94,7 @@ export async function generateCoverLetter(formData: FormData) {
 
   let routing
   try {
-    routing = await routeDischarge({
-      branch: facts.branch,
-      dischargeDate: facts.dischargeDate,
-      characterization: facts.characterization,
-      wasGeneralCourtMartial: facts.wasGeneralCourtMartial,
-    })
+    routing = await routeDischarge(facts)
   } catch {
     redirect('/case/draft?error=routing_unavailable')
   }
@@ -141,7 +102,7 @@ export async function generateCoverLetter(formData: FormData) {
   const conditionSummary =
     `${CONDITION_SUMMARY_LABELS[ctx.conditionCategory] ?? 'a mental-health condition'} arising during service`
 
-  const result = await runTask(user.id, 'draft_cover_letter', {
+  const result = await runAiTask(user.id, 'draft_cover_letter', {
     boardName: routing.boardName,
     form: routing.recommendedForm,
     branch: facts.branch,
@@ -150,10 +111,10 @@ export async function generateCoverLetter(formData: FormData) {
   })
   if (!result.ok) {
     if (result.status === 402) redirect('/case/upgrade')
-    redirect(`/case/draft?error=${generateFailureCode(result)}`)
+    redirect(`/case/draft?error=${aiFailureCode(result, 'generate_failed')}`)
   }
 
-  const { letter } = result.data as { letter: string }
+  const { letter } = result.data
   try {
     await saveGeneratedDraft(user.id, c.id, 'cover_letter', letter)
   } catch (err) {
@@ -168,8 +129,8 @@ export async function saveDraft(formData: FormData) {
   const user = await requireSessionUser('/case/draft')
 
   const kindRaw = String(formData.get('kind') ?? '')
-  if (!DRAFT_KINDS.includes(kindRaw)) redirect('/case/draft')
-  const kind = kindRaw as DraftKind
+  const kind = DRAFT_KINDS.find((k) => k === kindRaw)
+  if (!kind) redirect('/case/draft')
 
   const content = String(formData.get('content') ?? '')
   if (content.length > MAX_DRAFT_LENGTH) {
