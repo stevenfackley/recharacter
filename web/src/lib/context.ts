@@ -3,10 +3,11 @@ import { and, eq } from 'drizzle-orm'
 import { getDb } from '@/db'
 import { caseContext } from '@/db/schema'
 import { assertCaseOwned } from '@/lib/cases'
+import { CONDITION_CATEGORIES } from '@/lib/domain'
 import type { CaseContext } from '@/lib/evidence'
 
 export const caseContextSchema = z.object({
-  conditionCategory: z.enum(['ptsd', 'tbi', 'depression_anxiety', 'adjustment_disorder', 'other_mh', 'unsure']),
+  conditionCategory: z.enum(CONDITION_CATEGORIES),
   mstInvolved: z.boolean(),
   treatedInService: z.boolean(),
   hasVaRating: z.boolean(),

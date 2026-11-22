@@ -7,6 +7,7 @@ import { getOrCreateCase } from '@/lib/cases'
 import { caseContextSchema, getCaseContext, saveCaseContext } from '@/lib/context'
 import { getEvidenceStatuses, setEvidenceStatus } from '@/lib/evidence-items'
 import { runAiTask } from '@/lib/ai/run-task'
+import { EVIDENCE_STATUSES } from '@/lib/domain'
 import {
   EVIDENCE_CATALOG, recommendEvidence, scoreCase,
   type EvidenceStatus, type EvidenceType,
@@ -33,8 +34,6 @@ export async function saveContext(formData: FormData) {
   redirect('/case/evidence')
 }
 
-const STATUSES: readonly EvidenceStatus[] = ['needed', 'requested', 'collected', 'not_applicable']
-
 export async function setItemStatus(formData: FormData) {
   // The session first: an unauthenticated caller learns nothing about which
   // item types or statuses this app accepts.
@@ -42,7 +41,7 @@ export async function setItemStatus(formData: FormData) {
 
   const itemType = String(formData.get('itemType') ?? '')
   const status = String(formData.get('status') ?? '')
-  if (!STATUSES.includes(status as EvidenceStatus)) redirect('/case/evidence')
+  if (!EVIDENCE_STATUSES.includes(status as EvidenceStatus)) redirect('/case/evidence')
   // App-level allowlist symmetric with the status check (the DB check constraint
   // remains the backstop, but a bad type shouldn't read as a transient error).
   // `hasOwn`, not `in`: `in` walks the prototype chain, so 'constructor' and

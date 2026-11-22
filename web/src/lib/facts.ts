@@ -3,12 +3,7 @@ import { and, eq } from 'drizzle-orm'
 import { getDb } from '@/db'
 import { serviceFacts } from '@/db/schema'
 import { assertCaseOwned } from '@/lib/cases'
-
-export const BRANCHES = ['Army', 'Navy', 'MarineCorps', 'AirForce', 'SpaceForce', 'CoastGuard'] as const
-export const CHARACTERIZATIONS = [
-  'Honorable', 'GeneralUnderHonorable', 'OtherThanHonorable',
-  'BadConductDischarge', 'DishonorableDischarge', 'Uncharacterized',
-] as const
+import { BRANCHES, CHARACTERIZATIONS } from '@/lib/domain'
 
 /** The four facts routing needs. Values mirror the .NET RulesEngine enums verbatim. */
 export const serviceFactsSchema = z.object({

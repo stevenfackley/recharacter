@@ -3,15 +3,17 @@
  * NO AI in this path: personalization and scoring are pure functions over this data.
  */
 
+import type { ConditionCategory, EvidenceStatus } from '@/lib/domain'
+
 export type EvidenceType =
   | 'dd214' | 'service_treatment_records' | 'va_rating_letter' | 'civilian_mh_records'
   | 'buddy_statement' | 'nexus_letter' | 'personal_statement'
 
-export type EvidenceStatus = 'needed' | 'requested' | 'collected' | 'not_applicable'
+export type { EvidenceStatus }
 export type EvidenceStatusMap = Partial<Record<EvidenceType, EvidenceStatus>>
 
 export type CaseContext = {
-  conditionCategory: 'ptsd' | 'tbi' | 'depression_anxiety' | 'adjustment_disorder' | 'other_mh' | 'unsure'
+  conditionCategory: ConditionCategory
   mstInvolved: boolean
   treatedInService: boolean
   hasVaRating: boolean

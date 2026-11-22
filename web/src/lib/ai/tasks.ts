@@ -1,11 +1,5 @@
 import { z } from 'zod'
-
-// Same literals as web/src/lib/facts.ts (kept independent to avoid a client/server import edge).
-const BRANCH_VALUES = ['Army', 'Navy', 'MarineCorps', 'AirForce', 'SpaceForce', 'CoastGuard'] as const
-const CHARACTERIZATION_VALUES = [
-  'Honorable', 'GeneralUnderHonorable', 'OtherThanHonorable',
-  'BadConductDischarge', 'DishonorableDischarge', 'Uncharacterized',
-] as const
+import { BRANCHES, CHARACTERIZATIONS } from '@/lib/domain'
 
 /**
  * Every AI call in ReCharacter is a registered, bounded task: fixed system prompt,
@@ -61,9 +55,9 @@ const extractInput = z.object({
 })
 
 const extractOutput = z.object({
-  branch: z.enum(BRANCH_VALUES).nullable(),
+  branch: z.enum(BRANCHES).nullable(),
   dischargeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
-  characterization: z.enum(CHARACTERIZATION_VALUES).nullable(),
+  characterization: z.enum(CHARACTERIZATIONS).nullable(),
   wasGeneralCourtMartial: z.boolean().nullable(),
   notes: z.string(),
 })
@@ -86,9 +80,9 @@ const extract_service_facts: AiTask = {
   jsonSchema: {
     type: 'object',
     properties: {
-      branch: { anyOf: [{ type: 'null' }, { type: 'string', enum: [...BRANCH_VALUES] }] },
+      branch: { anyOf: [{ type: 'null' }, { type: 'string', enum: [...BRANCHES] }] },
       dischargeDate: { anyOf: [{ type: 'null' }, { type: 'string' }] },
-      characterization: { anyOf: [{ type: 'null' }, { type: 'string', enum: [...CHARACTERIZATION_VALUES] }] },
+      characterization: { anyOf: [{ type: 'null' }, { type: 'string', enum: [...CHARACTERIZATIONS] }] },
       wasGeneralCourtMartial: { anyOf: [{ type: 'null' }, { type: 'boolean' }] },
       notes: { type: 'string' },
     },
@@ -198,8 +192,8 @@ const draftAnswers = z.object({
 })
 const draftInput = z.object({
   answers: draftAnswers,
-  branch: z.enum(BRANCH_VALUES),
-  characterization: z.enum(CHARACTERIZATION_VALUES),
+  branch: z.enum(BRANCHES),
+  characterization: z.enum(CHARACTERIZATIONS),
   dischargeDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   collectedEvidence: z.array(z.string().max(120)).max(10),
 })
@@ -251,8 +245,8 @@ const draft_statement: AiTask = {
 const coverInput = z.object({
   boardName: z.string().min(1).max(40),
   form: z.enum(['DD293', 'DD149']),
-  branch: z.enum(BRANCH_VALUES),
-  characterization: z.enum(CHARACTERIZATION_VALUES),
+  branch: z.enum(BRANCHES),
+  characterization: z.enum(CHARACTERIZATIONS),
   conditionSummary: z.string().min(1).max(300),
 })
 const coverOutput = z.object({ letter: z.string().min(1) })

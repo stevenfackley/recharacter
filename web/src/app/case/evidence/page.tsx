@@ -6,6 +6,7 @@ import { getCaseContext } from '@/lib/context'
 import { getEvidenceStatuses } from '@/lib/evidence-items'
 import { recommendEvidence, scoreCase } from '@/lib/evidence'
 import { evidenceStatusLabel } from '@/lib/labels'
+import { CONDITION_CATEGORIES, EVIDENCE_STATUSES, type ConditionCategory } from '@/lib/domain'
 import { saveContext, setItemStatus } from './actions'
 import { CoachingSection } from './coaching'
 
@@ -17,16 +18,15 @@ const ERRORS = {
   invalid_context: 'Check the form.',
 } as const
 
-const CONDITION_OPTIONS = [
-  { value: 'ptsd', label: 'PTSD' },
-  { value: 'tbi', label: 'Traumatic brain injury (TBI)' },
-  { value: 'depression_anxiety', label: 'Depression or anxiety' },
-  { value: 'adjustment_disorder', label: 'Adjustment disorder' },
-  { value: 'other_mh', label: 'Other mental-health condition' },
-  { value: 'unsure', label: 'Not sure' },
-] as const
-
-const STATUS_OPTIONS = ['needed', 'requested', 'collected', 'not_applicable'] as const
+/** Options render in CONDITION_CATEGORIES order; a category without a label fails the build. */
+const CONDITION_LABELS: Record<ConditionCategory, string> = {
+  ptsd: 'PTSD',
+  tbi: 'Traumatic brain injury (TBI)',
+  depression_anxiety: 'Depression or anxiety',
+  adjustment_disorder: 'Adjustment disorder',
+  other_mh: 'Other mental-health condition',
+  unsure: 'Not sure',
+}
 
 export default async function EvidencePage({
   searchParams,
@@ -52,7 +52,9 @@ export default async function EvidencePage({
             Condition category
             <select name="conditionCategory" defaultValue="" required>
               <option value="" disabled>Select…</option>
-              {CONDITION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {CONDITION_CATEGORIES.map((value) => (
+                <option key={value} value={value}>{CONDITION_LABELS[value]}</option>
+              ))}
             </select>
           </label>
           <label>
@@ -104,7 +106,7 @@ export default async function EvidencePage({
                 <label>
                   Status
                   <select name="status" defaultValue={status}>
-                    {STATUS_OPTIONS.map((s) => (
+                    {EVIDENCE_STATUSES.map((s) => (
                       <option key={s} value={s}>{evidenceStatusLabel(s)}</option>
                     ))}
                   </select>

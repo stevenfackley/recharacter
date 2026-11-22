@@ -10,13 +10,13 @@ import { getEvidenceStatuses } from '@/lib/evidence-items'
 import { getNexusAnswers } from '@/lib/nexus'
 import { hasCompleteNexus, hasConfirmedFacts } from '@/lib/readiness'
 import { EVIDENCE_CATALOG, type EvidenceType } from '@/lib/evidence'
-import { getDraft, regenerateAllowedFor, saveGeneratedDraft, saveEditedDraft, type DraftKind } from '@/lib/drafts'
+import { getDraft, regenerateAllowedFor, saveGeneratedDraft, saveEditedDraft } from '@/lib/drafts'
+import { DRAFT_KINDS, type ConditionCategory, type DraftKind } from '@/lib/domain'
 import { routeDischarge } from '@/lib/routing'
 
 const MAX_DRAFT_LENGTH = 50_000
-const DRAFT_KINDS = ['personal_statement', 'cover_letter']
 
-const CONDITION_SUMMARY_LABELS: Record<string, string> = {
+const CONDITION_SUMMARY_LABELS: Record<ConditionCategory, string> = {
   ptsd: 'PTSD',
   tbi: 'a traumatic brain injury (TBI)',
   depression_anxiety: 'depression or anxiety',
@@ -134,8 +134,8 @@ export async function saveDraft(formData: FormData) {
   const user = await requireSessionUser('/case/draft')
 
   const kindRaw = String(formData.get('kind') ?? '')
-  if (!DRAFT_KINDS.includes(kindRaw)) redirect('/case/draft')
-  const kind = kindRaw as DraftKind
+  const kind = DRAFT_KINDS.find((k) => k === kindRaw)
+  if (!kind) redirect('/case/draft')
 
   const content = String(formData.get('content') ?? '')
   if (content.length > MAX_DRAFT_LENGTH) {

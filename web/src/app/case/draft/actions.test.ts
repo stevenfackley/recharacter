@@ -53,11 +53,12 @@ vi.mock('@/lib/nexus', () => ({
 }))
 
 const mockSaveGeneratedDraft = vi.fn()
+const mockSaveEditedDraft = vi.fn()
 vi.mock('@/lib/drafts', () => ({
   getDraft: async () => null,
   regenerateAllowedFor: () => true,
   saveGeneratedDraft: (...args: unknown[]) => mockSaveGeneratedDraft(...args),
-  saveEditedDraft: vi.fn(),
+  saveEditedDraft: (...args: unknown[]) => mockSaveEditedDraft(...args),
 }))
 
 const ROUTING = {
@@ -212,6 +213,28 @@ describe('drafting actions — owner scoping and persistence', () => {
       conditionSummary: 'an adjustment disorder arising during service',
     })
     expect(mockSaveGeneratedDraft).toHaveBeenCalledWith('user-1', 'case-1', 'cover_letter', 'My letter.')
+  })
+
+  test.each(['personal_statement', 'cover_letter'])('saveDraft keeps the veteran\'s %s edits', async (kind) => {
+    const { saveDraft } = await import('./actions')
+    const form = new FormData()
+    form.set('kind', kind)
+    form.set('content', 'Edited text.')
+
+    await expect(saveDraft(form)).rejects.toThrow('NEXT_REDIRECT')
+    expect(mockSaveEditedDraft).toHaveBeenCalledWith('user-1', 'case-1', kind, 'Edited text.')
+    expect(redirectSpy).toHaveBeenCalledWith('/case/draft')
+  })
+
+  test.each(['', 'statement', 'constructor', 'PERSONAL_STATEMENT'])('saveDraft refuses the kind %j and saves nothing', async (kind) => {
+    const { saveDraft } = await import('./actions')
+    const form = new FormData()
+    form.set('kind', kind)
+    form.set('content', 'Edited text.')
+
+    await expect(saveDraft(form)).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirectSpy).toHaveBeenCalledWith('/case/draft')
+    expect(mockSaveEditedDraft).not.toHaveBeenCalled()
   })
 
   test('a failed save surfaces as save_failed, never as the thrown message', async () => {
