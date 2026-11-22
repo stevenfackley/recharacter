@@ -1,4 +1,5 @@
-import { eq, sql } from 'drizzle-orm'
+import { eq, getTableName, sql } from 'drizzle-orm'
+import type { AnyPgColumn, PgTable } from 'drizzle-orm/pg-core'
 import { getDb } from '@/db'
 import {
   cases, serviceFacts, caseContext, evidenceItems, nexusAnswers,
@@ -103,6 +104,49 @@ export async function collectExport(ownerId: string, store: ObjectStore): Promis
   }
 }
 
+type OwnerTable = {
+  /**
+   * How deleteAccountData removes its rows:
+   *   - ledger: append-only; a trigger refuses DELETE unless the transaction
+   *     sets recharacter.allow_ledger_delete. Deleted directly by owner_id.
+   *   - owner: deleted directly by owner_id.
+   *   - caseScoped: removed by the ON DELETE CASCADE from cases, so counted
+   *     before the cases delete and re-checked after it.
+   *   - case: the cases row itself.
+   */
+  kind: 'ledger' | 'owner' | 'caseScoped' | 'case'
+  table: PgTable
+  /** A non-null column, read back only to count rows. */
+  key: AnyPgColumn
+  ownerId: AnyPgColumn
+}
+
+/**
+ * Every table that holds rows per owner, in the order deleteAccountData
+ * removes them (the receipt lists them in the same order). account.test.ts
+ * fails if a schema table with an owner_id column is missing here, so a new
+ * owner-scoped table cannot silently survive "delete everything".
+ */
+export const OWNER_TABLES: readonly OwnerTable[] = [
+  { kind: 'ledger', table: aiUsage, key: aiUsage.id, ownerId: aiUsage.ownerId },
+  { kind: 'ledger', table: entitlements, key: entitlements.id, ownerId: entitlements.ownerId },
+  { kind: 'owner', table: pendingCheckouts, key: pendingCheckouts.id, ownerId: pendingCheckouts.ownerId },
+  // No id column: the owner id is the primary key.
+  { kind: 'owner', table: aiCredentials, key: aiCredentials.ownerId, ownerId: aiCredentials.ownerId },
+  // Rate-limiting bookkeeping, not billing history, so no ledger guard stands
+  // in the way — but it is still owner-scoped data and "delete everything"
+  // has to mean everything.
+  { kind: 'owner', table: aiAttempts, key: aiAttempts.id, ownerId: aiAttempts.ownerId },
+  { kind: 'caseScoped', table: serviceFacts, key: serviceFacts.id, ownerId: serviceFacts.ownerId },
+  { kind: 'caseScoped', table: caseContext, key: caseContext.id, ownerId: caseContext.ownerId },
+  { kind: 'caseScoped', table: evidenceItems, key: evidenceItems.id, ownerId: evidenceItems.ownerId },
+  { kind: 'caseScoped', table: nexusAnswers, key: nexusAnswers.id, ownerId: nexusAnswers.ownerId },
+  { kind: 'caseScoped', table: drafts, key: drafts.id, ownerId: drafts.ownerId },
+  { kind: 'case', table: cases, key: cases.id, ownerId: cases.ownerId },
+]
+
+const ofKind = (...kinds: OwnerTable['kind'][]) => OWNER_TABLES.filter((t) => kinds.includes(t.kind))
+
 /** Deletion cannot even be attempted: the Keycloak service account is unusable. */
 export class DeletionUnavailableError extends Error {
   constructor(message = 'account deletion is unavailable', options?: ErrorOptions) {
@@ -163,52 +207,30 @@ export async function deleteAccountData(
     await tx.execute(sql.raw(`SET LOCAL recharacter.allow_ledger_delete = 'on'`))
 
     const counted: Record<string, number> = {}
-    counted.ai_usage = (await tx.delete(aiUsage).where(eq(aiUsage.ownerId, ownerId))
-      .returning({ id: aiUsage.id })).length
-    counted.entitlements = (await tx.delete(entitlements).where(eq(entitlements.ownerId, ownerId))
-      .returning({ id: entitlements.id })).length
-    counted.pending_checkouts = (await tx.delete(pendingCheckouts).where(eq(pendingCheckouts.ownerId, ownerId))
-      .returning({ id: pendingCheckouts.id })).length
-    counted.ai_credentials = (await tx.delete(aiCredentials).where(eq(aiCredentials.ownerId, ownerId))
-      .returning({ id: aiCredentials.ownerId })).length
-    // Rate-limiting bookkeeping, not billing history, so no ledger guard stands
-    // in the way — but it is still owner-scoped data and "delete everything"
-    // has to mean everything.
-    counted.ai_attempts = (await tx.delete(aiAttempts).where(eq(aiAttempts.ownerId, ownerId))
-      .returning({ id: aiAttempts.id })).length
+    const deleteOwned = async (t: OwnerTable) =>
+      (await tx.delete(t.table).where(eq(t.ownerId, ownerId)).returning({ id: t.key })).length
+    const countOwned = async (t: OwnerTable) =>
+      (await tx.select({ id: t.key }).from(t.table).where(eq(t.ownerId, ownerId))).length
 
-    // The five case-scoped tables disappear via ON DELETE CASCADE, which reports
+    for (const t of ofKind('ledger', 'owner')) counted[getTableName(t.table)] = await deleteOwned(t)
+
+    // The case-scoped tables disappear via ON DELETE CASCADE, which reports
     // nothing back — count them while they still exist so the receipt covers
     // every table rather than only the ones we name in a DELETE.
-    counted.service_facts = (await tx.select({ id: serviceFacts.id }).from(serviceFacts)
-      .where(eq(serviceFacts.ownerId, ownerId))).length
-    counted.case_context = (await tx.select({ id: caseContext.id }).from(caseContext)
-      .where(eq(caseContext.ownerId, ownerId))).length
-    counted.evidence_items = (await tx.select({ id: evidenceItems.id }).from(evidenceItems)
-      .where(eq(evidenceItems.ownerId, ownerId))).length
-    counted.nexus_answers = (await tx.select({ id: nexusAnswers.id }).from(nexusAnswers)
-      .where(eq(nexusAnswers.ownerId, ownerId))).length
-    counted.drafts = (await tx.select({ id: drafts.id }).from(drafts)
-      .where(eq(drafts.ownerId, ownerId))).length
+    const caseScoped = ofKind('caseScoped')
+    for (const t of caseScoped) counted[getTableName(t.table)] = await countOwned(t)
 
-    counted.cases = (await tx.delete(cases).where(eq(cases.ownerId, ownerId))
-      .returning({ id: cases.id })).length
+    for (const t of ofKind('case')) counted[getTableName(t.table)] = await deleteOwned(t)
 
     // The cascade follows case_id, not owner_id. A row carrying this owner_id
     // but pointing at someone else's case would survive it, and the counts
     // above — taken before the delete — would report it as removed. Re-read the
-    // five tables and refuse to commit if anything of theirs is still standing.
+    // case-scoped tables and refuse to commit if anything of theirs is still
+    // standing.
     const survivors: string[] = []
-    if ((await tx.select({ id: serviceFacts.id }).from(serviceFacts)
-      .where(eq(serviceFacts.ownerId, ownerId))).length) survivors.push('service_facts')
-    if ((await tx.select({ id: caseContext.id }).from(caseContext)
-      .where(eq(caseContext.ownerId, ownerId))).length) survivors.push('case_context')
-    if ((await tx.select({ id: evidenceItems.id }).from(evidenceItems)
-      .where(eq(evidenceItems.ownerId, ownerId))).length) survivors.push('evidence_items')
-    if ((await tx.select({ id: nexusAnswers.id }).from(nexusAnswers)
-      .where(eq(nexusAnswers.ownerId, ownerId))).length) survivors.push('nexus_answers')
-    if ((await tx.select({ id: drafts.id }).from(drafts)
-      .where(eq(drafts.ownerId, ownerId))).length) survivors.push('drafts')
+    for (const t of caseScoped) {
+      if (await countOwned(t)) survivors.push(getTableName(t.table))
+    }
     if (survivors.length) {
       throw new Error(`rows survived the case cascade in ${survivors.join(', ')}; deletion rolled back`)
     }
