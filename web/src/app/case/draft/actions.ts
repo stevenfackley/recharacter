@@ -94,12 +94,7 @@ export async function generateCoverLetter(formData: FormData) {
 
   let routing
   try {
-    routing = await routeDischarge({
-      branch: facts.branch,
-      dischargeDate: facts.dischargeDate,
-      characterization: facts.characterization,
-      wasGeneralCourtMartial: facts.wasGeneralCourtMartial,
-    })
+    routing = await routeDischarge(facts)
   } catch {
     redirect('/case/draft?error=routing_unavailable')
   }

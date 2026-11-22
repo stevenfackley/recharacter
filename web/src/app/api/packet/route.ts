@@ -51,12 +51,7 @@ export async function GET() {
 
   let routing
   try {
-    routing = await routeDischarge({
-      branch: facts.branch,
-      dischargeDate: facts.dischargeDate,
-      characterization: facts.characterization,
-      wasGeneralCourtMartial: facts.wasGeneralCourtMartial,
-    })
+    routing = await routeDischarge(facts)
   } catch {
     return json({ error: 'The routing service is unavailable right now — try again shortly' }, 503)
   }

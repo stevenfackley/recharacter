@@ -213,6 +213,8 @@ describe('drafting actions — owner scoping and persistence', () => {
       conditionSummary: 'an adjustment disorder arising during service',
     })
     expect(mockSaveGeneratedDraft).toHaveBeenCalledWith('user-1', 'case-1', 'cover_letter', 'My letter.')
+    // The confirmed row itself; routeDischarge picks the four routed facts.
+    expect(mockRouteDischarge).toHaveBeenCalledWith(FACTS)
   })
 
   test.each(['personal_statement', 'cover_letter'])('saveDraft keeps the veteran\'s %s edits', async (kind) => {

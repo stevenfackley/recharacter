@@ -37,12 +37,7 @@ export default async function CasePage() {
   let routingError = false
   if (factsConfirmed) {
     try {
-      routing = await routeDischarge({
-        branch: facts.branch,
-        dischargeDate: facts.dischargeDate,
-        characterization: facts.characterization,
-        wasGeneralCourtMartial: facts.wasGeneralCourtMartial,
-      })
+      routing = await routeDischarge(facts)
     } catch {
       routingError = true
     }
