@@ -4,7 +4,8 @@ import { requireSessionUser } from '@/lib/session'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
 import { routeDischarge, type RoutingResult } from '@/lib/routing'
-import { getNexusAnswers, KURTA_QUESTIONS, answersComplete } from '@/lib/nexus'
+import { getNexusAnswers } from '@/lib/nexus'
+import { hasCompleteNexus, hasConfirmedFacts, nexusAnsweredCount } from '@/lib/readiness'
 import { branchLabel, characterizationLabel } from '@/lib/labels'
 
 export const metadata: Metadata = { title: 'Your case' }
@@ -28,14 +29,13 @@ export default async function CasePage() {
   const c = await getOrCreateCase(user.id)
   const facts = await getServiceFacts(user.id, c.id)
   const answers = await getNexusAnswers(user.id, c.id)
-  const nexusFilledCount = KURTA_QUESTIONS.filter(
-    (q) => (answers?.[q.column] ?? '').trim().length > 0,
-  ).length
-  const nexusComplete = answers ? answersComplete(answers) : false
+  const nexusFilledCount = nexusAnsweredCount(answers)
+  const nexusComplete = hasCompleteNexus(answers)
+  const factsConfirmed = hasConfirmedFacts(facts)
 
   let routing: RoutingResult | null = null
   let routingError = false
-  if (facts?.confirmed) {
+  if (factsConfirmed) {
     try {
       routing = await routeDischarge({
         branch: facts.branch,
@@ -54,7 +54,7 @@ export default async function CasePage() {
 
       <section>
         <h2>1. Service facts</h2>
-        {facts?.confirmed ? (
+        {factsConfirmed ? (
           <p>
             {branchLabel(facts.branch)}, discharged {facts.dischargeDate} (
             {characterizationLabel(facts.characterization)}).{' '}
@@ -71,7 +71,7 @@ export default async function CasePage() {
 
       <section>
         <h2>2. Where your case goes</h2>
-        {!facts?.confirmed && <p>Confirm your service facts first.</p>}
+        {!factsConfirmed && <p>Confirm your service facts first.</p>}
         {routingError && <p role="alert">The routing service is unavailable right now — try again shortly.</p>}
         {routing && (
           <>
@@ -99,7 +99,7 @@ export default async function CasePage() {
 
       <section>
         <h2>3. Evidence</h2>
-        {facts?.confirmed ? (
+        {factsConfirmed ? (
           <p><Link href="/case/evidence">Build your evidence checklist</Link></p>
         ) : (
           <p>Confirm your service facts first.</p>
@@ -108,7 +108,7 @@ export default async function CasePage() {
 
       <section>
         <h2>4. Nexus — the four questions</h2>
-        {facts?.confirmed ? (
+        {factsConfirmed ? (
           <p>
             <Link href="/case/nexus">Answer the four Kurta questions</Link> — {nexusFilledCount} of 4 answered.
           </p>
@@ -128,7 +128,7 @@ export default async function CasePage() {
 
       <section>
         <h2>6. Packet — assemble and download</h2>
-        {facts?.confirmed ? (
+        {factsConfirmed ? (
           <p><Link href="/case/packet">Review your filing packet</Link></p>
         ) : (
           <p>Confirm your service facts first.</p>

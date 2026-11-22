@@ -4,8 +4,11 @@ import { requireSessionUser } from '@/lib/session'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
 import { getCaseContext } from '@/lib/context'
-import { getNexusAnswers, answersComplete } from '@/lib/nexus'
+import { getNexusAnswers } from '@/lib/nexus'
 import { getDraft } from '@/lib/drafts'
+import {
+  canDraftCoverLetter, canDraftStatement, hasCompleteNexus, hasConfirmedFacts,
+} from '@/lib/readiness'
 import { saveDraft, generateStatement, generateCoverLetter } from './actions'
 
 export const metadata: Metadata = { title: 'Your drafts' }
@@ -44,14 +47,15 @@ export default async function DraftPage({
   const ctx = await getCaseContext(user.id, c.id)
 
   const error = ERRORS[params.error as keyof typeof ERRORS] ?? null
-  const factsConfirmed = facts?.confirmed ?? false
-  const nexusComplete = answers ? answersComplete(answers) : false
+  const factsConfirmed = hasConfirmedFacts(facts)
+  const nexusComplete = hasCompleteNexus(answers)
 
   const statement = await getDraft(user.id, c.id, 'personal_statement')
   const coverLetter = await getDraft(user.id, c.id, 'cover_letter')
 
-  const canGenerateStatement = factsConfirmed && nexusComplete
-  const canGenerateCoverLetter = factsConfirmed && ctx !== null
+  // The same gates generateStatement and generateCoverLetter refuse on.
+  const canGenerateStatement = canDraftStatement({ facts, answers })
+  const canGenerateCoverLetter = canDraftCoverLetter({ facts, ctx })
 
   return (
     <main>

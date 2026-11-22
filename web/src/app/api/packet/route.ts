@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getSessionUser } from '@/lib/session'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
+import { hasConfirmedFacts } from '@/lib/readiness'
 import { routeDischarge } from '@/lib/routing'
 import { getDraft } from '@/lib/drafts'
 import { getEvidenceStatuses } from '@/lib/evidence-items'
@@ -32,6 +33,8 @@ export async function GET() {
   const user = await getSessionUser()
   if (!user) return json({ error: 'unauthenticated' }, 401)
 
+  // The three refusals below are the gates packetReady (lib/readiness.ts)
+  // combines for the packet page, each with its own status code.
   if (!(await isEntitled(user.id))) {
     return json(
       { error: 'Downloading your packet needs the case unlock or your own API key', upgrade: '/case/upgrade' },
@@ -42,7 +45,7 @@ export async function GET() {
   const c = await getOrCreateCase(user.id)
 
   const facts = await getServiceFacts(user.id, c.id)
-  if (!facts || !facts.confirmed) {
+  if (!hasConfirmedFacts(facts)) {
     return json({ error: 'Confirm your service facts before downloading your packet' }, 409)
   }
 

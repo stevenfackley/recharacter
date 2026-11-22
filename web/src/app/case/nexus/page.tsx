@@ -3,7 +3,8 @@ import Link from 'next/link'
 import { requireSessionUser } from '@/lib/session'
 import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
-import { getNexusAnswers, KURTA_QUESTIONS, answersComplete } from '@/lib/nexus'
+import { getNexusAnswers, KURTA_QUESTIONS } from '@/lib/nexus'
+import { hasCompleteNexus, hasConfirmedFacts, nexusAnsweredCount } from '@/lib/readiness'
 import { NexusQuestion } from './question'
 
 export const metadata: Metadata = { title: 'The four questions' }
@@ -14,17 +15,13 @@ export default async function NexusPage() {
   const facts = await getServiceFacts(user.id, c.id)
   const answers = await getNexusAnswers(user.id, c.id)
 
-  const filledCount = KURTA_QUESTIONS.filter(
-    (q) => (answers?.[q.column] ?? '').trim().length > 0,
-  ).length
-  const complete = answersComplete(answers ?? {
-    q1_condition: '', q2_during_service: '', q3_mitigation: '', q4_outweigh: '',
-  })
+  const filledCount = nexusAnsweredCount(answers)
+  const complete = hasCompleteNexus(answers)
 
   return (
     <main>
       <h1>The four questions</h1>
-      {!facts?.confirmed && (
+      {!hasConfirmedFacts(facts) && (
         <p role="alert">
           Confirm your service facts before generating a draft.{' '}
           <Link href="/case/intake">Go to intake</Link>

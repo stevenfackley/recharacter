@@ -7,7 +7,8 @@ import { getOrCreateCase } from '@/lib/cases'
 import { getServiceFacts } from '@/lib/facts'
 import { getCaseContext } from '@/lib/context'
 import { getEvidenceStatuses } from '@/lib/evidence-items'
-import { getNexusAnswers, answersComplete } from '@/lib/nexus'
+import { getNexusAnswers } from '@/lib/nexus'
+import { hasCompleteNexus, hasConfirmedFacts } from '@/lib/readiness'
 import { EVIDENCE_CATALOG, type EvidenceType } from '@/lib/evidence'
 import { getDraft, regenerateAllowedFor, saveGeneratedDraft, saveEditedDraft, type DraftKind } from '@/lib/drafts'
 import { routeDischarge } from '@/lib/routing'
@@ -73,10 +74,10 @@ export async function generateStatement(formData: FormData) {
 
   const c = await getOrCreateCase(user.id)
   const answers = await getNexusAnswers(user.id, c.id)
-  if (!answers || !answersComplete(answers)) redirect('/case/nexus')
+  if (!hasCompleteNexus(answers)) redirect('/case/nexus')
 
   const facts = await getServiceFacts(user.id, c.id)
-  if (!facts || !facts.confirmed) redirect('/case/intake')
+  if (!hasConfirmedFacts(facts)) redirect('/case/intake')
 
   if (!(await regenerateAllowed(user.id, c.id, 'personal_statement', formData))) {
     redirect('/case/draft?confirm=statement')
@@ -117,7 +118,7 @@ export async function generateCoverLetter(formData: FormData) {
 
   const c = await getOrCreateCase(user.id)
   const facts = await getServiceFacts(user.id, c.id)
-  if (!facts || !facts.confirmed) redirect('/case/intake')
+  if (!hasConfirmedFacts(facts)) redirect('/case/intake')
 
   const ctx = await getCaseContext(user.id, c.id)
   if (!ctx) redirect('/case/evidence')
