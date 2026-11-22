@@ -1,0 +1,236 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`task registry > whole-registry pin: every task's contract as sent to the model > coaching_note 1`] = `
+{
+  "jsonSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "note": {
+        "type": "string",
+      },
+    },
+    "required": [
+      "note",
+    ],
+    "type": "object",
+  },
+  "maxTokens": 512,
+  "model": "claude-opus-4-8",
+  "name": "coaching_note",
+  "premium": false,
+  "prompt": "Completeness score: 40/100 (developing). Collected so far: Fixture A; Fixture B. Highest-value missing item: Fixture gap.",
+  "system": "You write a short, warm, plain-English encouragement note for a veteran assembling evidence for a discharge-upgrade petition, inside a document-assembly application. You are given a completeness score, its band, what they have collected, and the single highest-value missing item. Write 2-3 sentences: acknowledge progress specifically, then point at the one next step. Never predict outcomes, never give legal advice or strategy, never mention lawyers or deadlines. The note is informational encouragement only.",
+}
+`;
+
+exports[`task registry > whole-registry pin: every task's contract as sent to the model > draft_cover_letter 1`] = `
+{
+  "jsonSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "letter": {
+        "type": "string",
+      },
+    },
+    "required": [
+      "letter",
+    ],
+    "type": "object",
+  },
+  "maxTokens": 2048,
+  "model": "claude-opus-4-8",
+  "name": "draft_cover_letter",
+  "premium": true,
+  "prompt": "Board: Fixture Board. Form enclosed: DD149. Branch: CoastGuard. Current characterization: Uncharacterized. Mental-health basis (one sentence): a fixture condition arising during service.",
+  "system": "You draft a short, formal cover letter for a discharge-upgrade application packet, inside a document-assembly application. One page maximum: addressee is the named review board; state the enclosed application form, the relief requested (upgrade of the characterization), a one-sentence summary of the mental-health basis with a respectful request for liberal consideration, and an enclosures line. Use placeholders in square brackets for anything not provided (name, address, date, signature). RULES: only facts from the input; no legal argument beyond the liberal-consideration request; plain, respectful, formal register. The veteran will review, edit, and own it.",
+}
+`;
+
+exports[`task registry > whole-registry pin: every task's contract as sent to the model > draft_statement 1`] = `
+{
+  "jsonSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "statement": {
+        "type": "string",
+      },
+    },
+    "required": [
+      "statement",
+    ],
+    "type": "object",
+  },
+  "maxTokens": 8192,
+  "model": "claude-opus-4-8",
+  "name": "draft_statement",
+  "premium": true,
+  "prompt": "Service facts: branch SpaceForce; discharged 2001-02-03; characterization BadConductDischarge.
+Evidence being included: Fixture evidence.
+
+Answer 1 — the condition/experience:
+Fixture 1
+
+Answer 2 — during service:
+Fixture 2
+
+Answer 3 — connection to the conduct (nexus):
+Fixture 3
+
+Answer 4 — whole record:
+Fixture 4",
+  "system": "You assemble a personal statement for a veteran petitioning a discharge review board, inside a document-assembly application. You are given the veteran's four approved answers (their own words), their confirmed service facts, and a list of evidence they are including. Produce a complete first-person statement: a brief opening identifying the service and the characterization being petitioned; the four answers woven into a coherent narrative in their original order; a short closing that respectfully asks the board to apply liberal consideration to the mental-health evidence. RULES: the statement may contain ONLY facts present in the inputs — never invent events, dates, names, diagnoses, or details; never say evidence is included, enclosed, or attached unless the evidence list names at least one item; preserve the veteran's voice and words wherever possible; plain language, no citations, no legal argument beyond the liberal-consideration request; do not address filing strategy. The veteran will review, edit, and own this draft.",
+}
+`;
+
+exports[`task registry > whole-registry pin: every task's contract as sent to the model > extract_service_facts 1`] = `
+{
+  "jsonSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "branch": {
+        "anyOf": [
+          {
+            "type": "null",
+          },
+          {
+            "enum": [
+              "Army",
+              "Navy",
+              "MarineCorps",
+              "AirForce",
+              "SpaceForce",
+              "CoastGuard",
+            ],
+            "type": "string",
+          },
+        ],
+      },
+      "characterization": {
+        "anyOf": [
+          {
+            "type": "null",
+          },
+          {
+            "enum": [
+              "Honorable",
+              "GeneralUnderHonorable",
+              "OtherThanHonorable",
+              "BadConductDischarge",
+              "DishonorableDischarge",
+              "Uncharacterized",
+            ],
+            "type": "string",
+          },
+        ],
+      },
+      "dischargeDate": {
+        "anyOf": [
+          {
+            "type": "null",
+          },
+          {
+            "type": "string",
+          },
+        ],
+      },
+      "notes": {
+        "type": "string",
+      },
+      "wasGeneralCourtMartial": {
+        "anyOf": [
+          {
+            "type": "null",
+          },
+          {
+            "type": "boolean",
+          },
+        ],
+      },
+    },
+    "required": [
+      "branch",
+      "dischargeDate",
+      "characterization",
+      "wasGeneralCourtMartial",
+      "notes",
+    ],
+    "type": "object",
+  },
+  "maxTokens": 2048,
+  "model": "claude-opus-4-8",
+  "name": "extract_service_facts",
+  "premium": false,
+  "prompt": [
+    {
+      "source": {
+        "data": "Rml4dHVyZQ==",
+        "media_type": "image/png",
+        "type": "base64",
+      },
+      "type": "image",
+    },
+    {
+      "text": "Extract the service facts from this document. Context from the veteran (facts in the document still win): fixture note",
+      "type": "text",
+    },
+  ],
+  "system": "You extract structured facts from a US military separation document (typically a DD-214) for a document-assembly application. Read the document and report ONLY what it states. If a field is not clearly present, return null for it — never guess or infer. branch: the service branch. dischargeDate: the separation date (ISO YYYY-MM-DD). characterization: the character of service exactly as one of the allowed values. wasGeneralCourtMartial: true only if the document shows the discharge resulted from a general court-martial. notes: one or two sentences on anything ambiguous or unreadable. You provide no advice or opinions of any kind.",
+}
+`;
+
+exports[`task registry > whole-registry pin: every task's contract as sent to the model > ping 1`] = `
+{
+  "jsonSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "echo": {
+        "type": "string",
+      },
+      "ok": {
+        "type": "boolean",
+      },
+    },
+    "required": [
+      "ok",
+      "echo",
+    ],
+    "type": "object",
+  },
+  "maxTokens": 256,
+  "model": "claude-opus-4-8",
+  "name": "ping",
+  "premium": false,
+  "prompt": "Echo this message back: fixture ping",
+  "system": "You are the connectivity check for a document-assembly application. Respond only with the JSON the schema requires. Set ok to true and echo the message verbatim.",
+}
+`;
+
+exports[`task registry > whole-registry pin: every task's contract as sent to the model > shape_nexus_answer 1`] = `
+{
+  "jsonSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "gaps": {
+        "type": "string",
+      },
+      "shapedAnswer": {
+        "type": "string",
+      },
+    },
+    "required": [
+      "shapedAnswer",
+      "gaps",
+    ],
+    "type": "object",
+  },
+  "maxTokens": 2048,
+  "model": "claude-opus-4-8",
+  "name": "shape_nexus_answer",
+  "premium": true,
+  "prompt": "The question: Fixture question?
+
+The veteran's raw account:
+Fixture narrative.",
+  "system": "You help a veteran phrase their OWN account for one specific question a discharge review board weighs, inside a document-assembly application. Rewrite their raw narrative into a clear, first-person answer to the question. RULES: preserve their voice and their words wherever possible; NEVER add facts, events, dates, diagnoses, or details they did not state; do not exaggerate; do not give advice or legal argument. In gaps, note (one or two sentences, addressed to the veteran) what in their own account a reader might find unclear or incomplete — phrased as "consider describing…", about their experience only, never about what would persuade the board. The veteran will edit and own the final text.",
+}
+`;
