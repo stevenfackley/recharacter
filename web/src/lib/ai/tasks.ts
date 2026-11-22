@@ -6,14 +6,18 @@ import { BRANCHES, CHARACTERIZATIONS } from '@/lib/domain'
  * validated input, JSON-schema-constrained output. There are no free-form endpoints.
  * This is the anti-UPL boundary enforced in code — the model assembles documents and
  * extracts facts; it never gives open-ended advice.
+ *
+ * The schema type parameters carry each task's input and output shapes to its
+ * callers (TaskInput, TaskOutput); the defaults are the untyped view the
+ * gateway and the /api/ai/[task] route work with.
  */
-export type AiTask = {
+export type AiTask<In extends z.ZodType = z.ZodType, Out extends z.ZodType = z.ZodType> = {
   name: string
   model: 'claude-opus-4-8'
   system: string
   maxTokens: number
-  inputSchema: z.ZodTypeAny
-  outputSchema: z.ZodTypeAny
+  inputSchema: In
+  outputSchema: Out
   /** JSON Schema mirror of outputSchema, sent as output_config.format (must set additionalProperties: false). */
   jsonSchema: Record<string, unknown> & { additionalProperties: false }
   /** Returns a plain string OR an array of Anthropic content blocks (vision/PDF tasks). */
@@ -22,10 +26,15 @@ export type AiTask = {
   premium?: true
 }
 
+/** Returns the task unchanged; it exists so each task keeps its own schema types. */
+function defineTask<In extends z.ZodType, Out extends z.ZodType>(task: AiTask<In, Out>): AiTask<In, Out> {
+  return task
+}
+
 const pingInput = z.object({ message: z.string().min(1).max(200) })
 const pingOutput = z.object({ ok: z.boolean(), echo: z.string() })
 
-const ping: AiTask = {
+const ping = defineTask({
   name: 'ping',
   model: 'claude-opus-4-8',
   system:
@@ -44,7 +53,7 @@ const ping: AiTask = {
     const { message } = pingInput.parse(input)
     return `Echo this message back: ${message}`
   },
-}
+})
 
 const extractInput = z.object({
   // ~15 MB base64-inflated: the task boundary enforces its own cap so callers
@@ -62,7 +71,7 @@ const extractOutput = z.object({
   notes: z.string(),
 })
 
-const extract_service_facts: AiTask = {
+const extract_service_facts = defineTask({
   name: 'extract_service_facts',
   model: 'claude-opus-4-8',
   system:
@@ -106,7 +115,7 @@ const extract_service_facts: AiTask = {
       },
     ]
   },
-}
+})
 
 const coachingInput = z.object({
   score: z.number().int().min(0).max(100),
@@ -117,7 +126,7 @@ const coachingInput = z.object({
 
 const coachingOutput = z.object({ note: z.string().min(1).max(800) })
 
-const coaching_note: AiTask = {
+const coaching_note = defineTask({
   name: 'coaching_note',
   model: 'claude-opus-4-8',
   system:
@@ -144,7 +153,7 @@ const coaching_note: AiTask = {
       `Highest-value missing item: ${topGapLabel ?? 'none — everything applicable is collected'}.`
     )
   },
-}
+})
 
 const shapeInput = z.object({
   questionKey: z.enum(['q1', 'q2', 'q3', 'q4']),
@@ -156,7 +165,7 @@ const shapeOutput = z.object({
   gaps: z.string().max(1000),
 })
 
-const shape_nexus_answer: AiTask = {
+const shape_nexus_answer = defineTask({
   name: 'shape_nexus_answer',
   premium: true,
   model: 'claude-opus-4-8',
@@ -182,7 +191,7 @@ const shape_nexus_answer: AiTask = {
     const { questionPrompt, rawNarrative } = shapeInput.parse(input)
     return `The question: ${questionPrompt}\n\nThe veteran's raw account:\n${rawNarrative}`
   },
-}
+})
 
 const draftAnswers = z.object({
   q1_condition: z.string().min(1).max(6000),
@@ -199,7 +208,7 @@ const draftInput = z.object({
 })
 const draftOutput = z.object({ statement: z.string().min(1) })
 
-const draft_statement: AiTask = {
+const draft_statement = defineTask({
   name: 'draft_statement',
   premium: true,
   model: 'claude-opus-4-8',
@@ -240,7 +249,7 @@ const draft_statement: AiTask = {
       `Answer 4 — whole record:\n${d.answers.q4_outweigh}`
     )
   },
-}
+})
 
 const coverInput = z.object({
   boardName: z.string().min(1).max(40),
@@ -251,7 +260,7 @@ const coverInput = z.object({
 })
 const coverOutput = z.object({ letter: z.string().min(1) })
 
-const draft_cover_letter: AiTask = {
+const draft_cover_letter = defineTask({
   name: 'draft_cover_letter',
   premium: true,
   model: 'claude-opus-4-8',
@@ -281,12 +290,18 @@ const draft_cover_letter: AiTask = {
       `Mental-health basis (one sentence): ${d.conditionSummary}.`
     )
   },
-}
+})
 
-export const TASKS: Record<string, AiTask> = {
+export const TASKS = {
   ping, extract_service_facts, coaching_note,
   shape_nexus_answer, draft_statement, draft_cover_letter,
-}
+} satisfies Record<string, AiTask>
+
+export type TaskName = keyof typeof TASKS
+/** What a caller may pass for the task (before the input schema's defaults and transforms). */
+export type TaskInput<K extends TaskName> = z.input<(typeof TASKS)[K]['inputSchema']>
+/** What the gateway hands back for the task once the output schema has accepted it. */
+export type TaskOutput<K extends TaskName> = z.output<(typeof TASKS)[K]['outputSchema']>
 
 /**
  * Own properties only. A plain index walks the prototype chain, so an
@@ -294,5 +309,5 @@ export const TASKS: Record<string, AiTask> = {
  * non-task and be executed as one instead of 404ing.
  */
 export function getTask(name: string): AiTask | undefined {
-  return Object.hasOwn(TASKS, name) ? TASKS[name as keyof typeof TASKS] : undefined
+  return Object.hasOwn(TASKS, name) ? TASKS[name as TaskName] : undefined
 }

@@ -59,10 +59,7 @@ export async function uploadAndExtract(formData: FormData) {
     redirect(`/case/intake?error=${aiFailureCode(result, 'extract_failed')}`)
   }
 
-  const d = result.data as {
-    branch: string | null; dischargeDate: string | null
-    characterization: string | null; wasGeneralCourtMartial: boolean | null
-  }
+  const d = result.data
 
   // Save only if extraction produced a COMPLETE, valid fact set (unconfirmed —
   // the veteran must review). For PARTIAL extractions we deliberately do NOT

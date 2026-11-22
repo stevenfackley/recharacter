@@ -66,7 +66,7 @@ export async function generateStatement(formData: FormData) {
     redirect(`/case/draft?error=${aiFailureCode(result, 'generate_failed')}`)
   }
 
-  const { statement } = result.data as { statement: string }
+  const { statement } = result.data
   try {
     await saveGeneratedDraft(user.id, c.id, 'personal_statement', statement)
   } catch (err) {
@@ -114,7 +114,7 @@ export async function generateCoverLetter(formData: FormData) {
     redirect(`/case/draft?error=${aiFailureCode(result, 'generate_failed')}`)
   }
 
-  const { letter } = result.data as { letter: string }
+  const { letter } = result.data
   try {
     await saveGeneratedDraft(user.id, c.id, 'cover_letter', letter)
   } catch (err) {

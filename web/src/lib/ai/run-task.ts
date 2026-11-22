@@ -1,9 +1,17 @@
 import { executeAiTask, type AiTaskResult } from '@/lib/ai/gateway'
+import type { TaskInput, TaskName, TaskOutput } from '@/lib/ai/tasks'
 
 export type AiTaskFailure = Extract<AiTaskResult, { ok: false }>
 
 /**
- * executeAiTask for a server action: the same result, but it never rejects.
+ * executeAiTask for a server action: the same result, but typed by task and
+ * it never rejects.
+ *
+ * The task name must be a registered one, the input must match that task's
+ * input schema, and the data comes back as that task's output type, so a
+ * typo or a renamed field is a compile error rather than a 404 or an
+ * `undefined` at runtime. The one cast below is safe: the gateway resolves
+ * ok only after TASKS[taskName].outputSchema has accepted the data.
  *
  * The gateway REJECTS (rather than resolving a refusal) when it cannot even
  * record the attempt. An unhandled rejection in an action is a blank 500 on a
@@ -15,11 +23,11 @@ export type AiTaskFailure = Extract<AiTaskResult, { ok: false }>
  * It lives beside the gateway rather than in it so the action tests, which
  * stub executeAiTask, still drive this wrapper's catch.
  */
-export async function runAiTask(
-  ownerId: string, taskName: string, input: unknown,
-): Promise<AiTaskResult> {
+export async function runAiTask<K extends TaskName>(
+  ownerId: string, taskName: K, input: TaskInput<K>,
+): Promise<AiTaskResult<TaskOutput<K>>> {
   try {
-    return await executeAiTask(ownerId, taskName, input)
+    return (await executeAiTask(ownerId, taskName, input)) as AiTaskResult<TaskOutput<K>>
   } catch (err) {
     console.error(`ai task ${taskName} failed:`, err instanceof Error ? err.message : err)
     return { ok: false, status: 503, error: 'AI unavailable' }

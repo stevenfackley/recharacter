@@ -75,7 +75,7 @@ async function getCoaching(ownerId: string, input: {
   // Encouragement is optional: any refusal, including a gateway that could not
   // record the attempt (runAiTask's 503), is a missing note, never a 500.
   const result = await runAiTask(ownerId, 'coaching_note', input)
-  return result.ok ? (result.data as { note: string }).note : null
+  return result.ok ? result.data.note : null
 }
 
 /**

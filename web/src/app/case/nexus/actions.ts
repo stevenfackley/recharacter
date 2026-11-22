@@ -96,6 +96,6 @@ export async function shapeAnswer(_prev: ShapeState, formData: FormData): Promis
     return { shapedAnswer: null, gaps: AI_UNAVAILABLE_NOTE }
   }
 
-  const d = result.data as { shapedAnswer: string; gaps: string }
+  const d = result.data
   return { shapedAnswer: d.shapedAnswer, gaps: d.gaps || null }
 }
