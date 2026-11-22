@@ -6,7 +6,7 @@ import { getSessionUser, requireSessionUser } from '@/lib/session'
 import { getOrCreateCase } from '@/lib/cases'
 import { caseContextSchema, getCaseContext, saveCaseContext } from '@/lib/context'
 import { getEvidenceStatuses, setEvidenceStatus } from '@/lib/evidence-items'
-import { executeAiTask } from '@/lib/ai/gateway'
+import { runAiTask } from '@/lib/ai/run-task'
 import {
   EVIDENCE_CATALOG, recommendEvidence, scoreCase,
   type EvidenceStatus, type EvidenceType,
@@ -73,15 +73,10 @@ async function getCoaching(ownerId: string, input: {
   score: number; band: 'building' | 'developing' | 'strong'
   topGapLabel: string | null; collectedLabels: string[]
 }): Promise<string | null> {
-  try {
-    const result = await executeAiTask(ownerId, 'coaching_note', input)
-    return result.ok ? (result.data as { note: string }).note : null
-  } catch (err) {
-    // The gateway can now reject outright (an attempt it could not record).
-    // Encouragement is optional; a missing note is the right outcome, never a 500.
-    console.error('coaching note failed:', err instanceof Error ? err.message : err)
-    return null
-  }
+  // Encouragement is optional: any refusal, including a gateway that could not
+  // record the attempt (runAiTask's 503), is a missing note, never a 500.
+  const result = await runAiTask(ownerId, 'coaching_note', input)
+  return result.ok ? (result.data as { note: string }).note : null
 }
 
 /**

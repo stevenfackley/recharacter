@@ -2,7 +2,7 @@
 
 import { refresh } from 'next/cache'
 import { getSessionUser, requireSessionUser } from '@/lib/session'
-import { executeAiTask } from '@/lib/ai/gateway'
+import { runAiTask } from '@/lib/ai/run-task'
 import { getOrCreateCase } from '@/lib/cases'
 import { KURTA_QUESTIONS, saveNexusAnswer } from '@/lib/nexus'
 
@@ -83,19 +83,14 @@ export async function shapeAnswer(_prev: ShapeState, formData: FormData): Promis
   const rawNarrative = String(formData.get('text') ?? '').trim()
   if (!rawNarrative) return { shapedAnswer: null, gaps: null }
 
-  let result
-  try {
-    result = await executeAiTask(user.id, 'shape_nexus_answer', {
-      questionKey: question.key,
-      questionPrompt: question.prompt,
-      rawNarrative,
-    })
-  } catch (err) {
-    // The gateway can reject outright (an attempt it could not record). Inline
-    // state, never a 500 that would take the other three answers with it.
-    console.error('shape_nexus_answer failed:', err instanceof Error ? err.message : err)
-    return { shapedAnswer: null, gaps: AI_UNAVAILABLE_NOTE }
-  }
+  // runAiTask never rejects (a gateway that could not record the attempt comes
+  // back as a 503), so this is inline state, never a 500 that would take the
+  // other three answers with it.
+  const result = await runAiTask(user.id, 'shape_nexus_answer', {
+    questionKey: question.key,
+    questionPrompt: question.prompt,
+    rawNarrative,
+  })
   if (!result.ok) {
     if (result.status === 402) return { shapedAnswer: null, gaps: PAYMENT_REQUIRED_NOTE }
     return { shapedAnswer: null, gaps: AI_UNAVAILABLE_NOTE }

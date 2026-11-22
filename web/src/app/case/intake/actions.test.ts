@@ -197,6 +197,33 @@ describe('uploadAndExtract — upload and extraction transport', () => {
     expect(redirectSpy).toHaveBeenCalledWith('/case/intake?error=ai_unavailable')
   })
 
+  test('a provider failure without the BYOK flag is the page\'s generic extract_failed', async () => {
+    mockExecute.mockResolvedValue({ ok: false, status: 502, error: 'AI provider error' })
+    const { uploadAndExtract } = await import('./actions')
+
+    await expect(uploadAndExtract(uploadForm(PDF()))).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirectSpy).toHaveBeenCalledWith('/case/intake?error=extract_failed')
+  })
+
+  test('a throttled extraction is its own code', async () => {
+    mockExecute.mockResolvedValue({ ok: false, status: 429, error: 'Too many AI requests' })
+    const { uploadAndExtract } = await import('./actions')
+
+    await expect(uploadAndExtract(uploadForm(PDF()))).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirectSpy).toHaveBeenCalledWith('/case/intake?error=rate_limited')
+  })
+
+  test('AI unavailable on our side (a 503 without the BYOK flag) is ai_unavailable, not "could not read"', async () => {
+    // The gateway's own 503: no managed key, or a BYOK credential with no KEK to
+    // open it. The document was never sent anywhere, so "we could not read the
+    // document" would be false; this is the same code a rejecting gateway gets.
+    mockExecute.mockResolvedValue({ ok: false, status: 503, error: 'AI key unavailable' })
+    const { uploadAndExtract } = await import('./actions')
+
+    await expect(uploadAndExtract(uploadForm(PDF()))).rejects.toThrow('NEXT_REDIRECT')
+    expect(redirectSpy).toHaveBeenCalledWith('/case/intake?error=ai_unavailable')
+  })
+
   test('an unreadable saved key is not blamed on the provider that never saw it', async () => {
     mockExecute.mockResolvedValue({
       ok: false, status: 503, error: 'could not be read', byokKeyRejected: true,

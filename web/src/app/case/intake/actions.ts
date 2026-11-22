@@ -2,7 +2,7 @@
 
 import { redirect } from 'next/navigation'
 import { requireSessionUser } from '@/lib/session'
-import { executeAiTask, type AiTaskResult } from '@/lib/ai/gateway'
+import { aiFailureCode, runAiTask } from '@/lib/ai/run-task'
 import { getOrCreateCase } from '@/lib/cases'
 import { getObjectStore } from '@/lib/storage'
 import {
@@ -16,20 +16,6 @@ import { serviceFactsSchema, saveServiceFacts, confirmServiceFacts } from '@/lib
  * that carries its own message is a place for someone else to put words on
  * recharacter.us — the same rule lib/auth-errors.ts enforces for the auth pages.
  */
-
-/**
- * A refused extraction, named precisely. The two BYOK failures are NOT the same
- * apology: a 502 means the provider saw the key and rejected it, while a 503
- * means we could not decrypt what we stored — the provider never saw anything —
- * and only the second is fixed by re-entering the key.
- */
-function extractFailureCode(result: Extract<AiTaskResult, { ok: false }>): string {
-  if (result.status === 429) return 'rate_limited'
-  if (result.byokKeyRejected) {
-    return result.status === 503 ? 'byok_key_unreadable' : 'byok_key_rejected'
-  }
-  return 'extract_failed'
-}
 
 /** Upload a separation document, extract facts with AI, save them UNCONFIRMED. */
 export async function uploadAndExtract(formData: FormData) {
@@ -65,18 +51,12 @@ export async function uploadAndExtract(formData: FormData) {
   // Extraction is a bounded task; the result only PREFILLS the review form. The
   // document is already stored, so every failure below still leaves the veteran
   // with the manual form — never a 500 over an upload that actually succeeded.
-  let result
-  try {
-    result = await executeAiTask(user.id, 'extract_service_facts', {
-      documentBase64: Buffer.from(bytes).toString('base64'),
-      mediaType: stored.contentType,
-    })
-  } catch (err) {
-    console.error('extract_service_facts failed:', err instanceof Error ? err.message : err)
-    redirect('/case/intake?error=ai_unavailable')
-  }
+  const result = await runAiTask(user.id, 'extract_service_facts', {
+    documentBase64: Buffer.from(bytes).toString('base64'),
+    mediaType: stored.contentType,
+  })
   if (!result.ok) {
-    redirect(`/case/intake?error=${extractFailureCode(result)}`)
+    redirect(`/case/intake?error=${aiFailureCode(result, 'extract_failed')}`)
   }
 
   const d = result.data as {
